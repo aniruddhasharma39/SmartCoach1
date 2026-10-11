@@ -19,6 +19,14 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+// Normalize repeated slashes in request paths (e.g., //api/v1 -> /api/v1)
+app.use((req, res, next) => {
+  if (req.url.includes('//')) {
+    req.url = req.url.replace(/\/+/g, '/');
+  }
+  next();
+});
+
 // Routes
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/users', userRoutes);

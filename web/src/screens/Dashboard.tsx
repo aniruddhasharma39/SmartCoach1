@@ -27,7 +27,6 @@ export default function Dashboard({ user, onLogout }: Props) {
   const [systemModules, setSystemModules] = useState<any[]>(DEFAULT_SYSTEM_MODULES);
   const [branding, setBranding] = useState({ appName: 'LC Platform' });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(false);
 
   const fetchUsers = async () => {
     if (user.role !== 'Developer') return;
@@ -159,18 +158,6 @@ export default function Dashboard({ user, onLogout }: Props) {
   }, {} as Record<string, any[]>);
 
   const [activeTab, setActiveTab] = useState<'existing' | 'pending'>('existing');
-
-  if (isInitializing) {
-    return (
-      <div className="app-container" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--background)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
-          <div className="spinner" style={{ width: 40, height: 40, border: '4px solid var(--border)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          <div style={{ color: 'var(--text-muted)', fontWeight: 'bold' }}>Loading dashboard...</div>
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="app-container">
