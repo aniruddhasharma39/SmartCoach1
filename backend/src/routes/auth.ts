@@ -127,12 +127,14 @@ router.post('/login', async (req, res, next) => {
   try {
     const data = loginSchema.parse(req.body);
 
+    const cleanIdentifier = data.identifier.trim();
+
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          { email: data.identifier },
-          { mobile: data.identifier },
-          { employeeId: data.identifier },
+          { email: { equals: cleanIdentifier, mode: 'insensitive' } },
+          { mobile: cleanIdentifier },
+          { employeeId: { equals: cleanIdentifier, mode: 'insensitive' } },
         ],
       },
       include: { 

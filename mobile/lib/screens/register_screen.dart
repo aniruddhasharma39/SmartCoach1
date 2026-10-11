@@ -109,6 +109,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   Future<void> _register() async {
+    if (_passwordCtrl.text.trim().isEmpty) {
+      setState(() => _error = 'Password is required');
+      return;
+    }
+
     if (_passwordCtrl.text != _confirmPasswordCtrl.text) {
       setState(() => _error = 'Passwords do not match');
       return;

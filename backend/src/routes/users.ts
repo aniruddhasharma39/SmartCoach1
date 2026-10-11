@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate, requireModule } from '../middleware/auth';
@@ -105,7 +106,9 @@ router.put('/request/:id/approve', requireModule('manage-users'), async (req: an
         department: extract(['department', 'dept', 'designation']) || 'Unknown',
         requestedRoleId: request.requestedRoleId,
         roleId: data.roleId,
-        passwordHash: formData.password || '', // password was hashed in auth.ts
+        passwordHash: (formData.password && formData.password.trim().length > 0)
+          ? formData.password
+          : await bcrypt.hash('123456', 10),
         status: 'APPROVED',
         metadata: JSON.stringify(mappedMetadata)
       }
