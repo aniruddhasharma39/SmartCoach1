@@ -593,17 +593,27 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
 function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
   const [type, setType] = useState('DEVICE_1');
   const [deviceSequence, setDeviceSequence] = useState('1');
+  const [loadingSequence, setLoadingSequence] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+    setLoadingSequence(true);
     fetch(`${API_URL}/api/v1/lcgate/masters/${master.id}/next-device-sequence?type=${type}`, {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
     })
       .then(r => r.json())
       .then(data => {
-        if (data.nextSequence) setDeviceSequence(data.nextSequence.toString());
+        if (isMounted && data.nextSequence) {
+          setDeviceSequence(data.nextSequence.toString());
+        }
       })
-      .catch(console.error);
+      .catch(console.error)
+      .finally(() => {
+        if (isMounted) setLoadingSequence(false);
+      });
+
+    return () => { isMounted = false; };
   }, [master.id, type]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -655,13 +665,13 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
               style={{ backgroundColor: 'rgba(0,0,0,0.05)', cursor: 'not-allowed' }}
               type="text" 
               readOnly
-              value={deviceSequence.padStart(2, '0')} 
+              value={loadingSequence ? '...' : deviceSequence.padStart(2, '0')} 
             />
           </div>
           <small className="text-muted mt-1 block">This sequence is auto-generated and cannot be changed.</small>
         </div>
-        <button type="submit" className="btn-primary w-full mt-4 py-3" disabled={submitting}>
-          {submitting ? 'Saving...' : 'Add Slave Device'}
+        <button type="submit" className="btn-primary w-full mt-4 py-3" disabled={submitting || loadingSequence}>
+          {submitting ? 'Saving...' : loadingSequence ? 'Calculating Sequence...' : 'Add Slave Device'}
         </button>
       </form>
     </div>
@@ -670,8 +680,8 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
 
 function CentralizedEvidenceUpload({ master, onClose }: any) {
   const evidences = master.evidences || [];
-  const hasMasterEv = evidences.some((e: any) => e.category === 'MASTER');
-  const hasPowerEv = evidences.some((e: any) => e.category === 'POWER_SOURCE');
+  const masterEv = evidences.find((e: any) => e.category === 'MASTER');
+  const powerEv = evidences.find((e: any) => e.category === 'POWER_SOURCE');
 
   return (
     <div className="glass-card slide-up">
@@ -687,7 +697,8 @@ function CentralizedEvidenceUpload({ master, onClose }: any) {
         <EvidenceItem 
           title="Master Unit (ESP)" 
           description="Photo showing the ESP installation"
-          isDone={hasMasterEv}
+          isDone={!!masterEv}
+          evidenceData={masterEv}
           masterId={master.id}
           category="MASTER"
         />
@@ -696,20 +707,22 @@ function CentralizedEvidenceUpload({ master, onClose }: any) {
         <EvidenceItem 
           title={`${master.powerSource === 'SOLAR' ? 'Solar Panel' : 'Direct Power'} Source`}
           description={`Photo verifying the ${master.powerSource} installation`}
-          isDone={hasPowerEv}
+          isDone={!!powerEv}
+          evidenceData={powerEv}
           masterId={master.id}
           category="POWER_SOURCE"
         />
 
         {/* Child Devices */}
         {master.childDevices?.map((dev: any) => {
-          const hasDevEv = evidences.some((e: any) => e.category === dev.type && e.childDeviceId === dev.id);
+          const devEv = evidences.find((e: any) => e.category === dev.type && e.childDeviceId === dev.id);
           return (
             <EvidenceItem 
               key={dev.id}
               title={`Slave ${dev.type}`} 
               description={dev.type === 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor'}
-              isDone={hasDevEv}
+              isDone={!!devEv}
+              evidenceData={devEv}
               masterId={master.id}
               childDeviceId={dev.id}
               category={dev.type}
@@ -721,9 +734,10 @@ function CentralizedEvidenceUpload({ master, onClose }: any) {
   );
 }
 
-function EvidenceItem({ title, description, isDone, masterId, childDeviceId, category }: any) {
+function EvidenceItem({ title, description, isDone, evidenceData, masterId, childDeviceId, category }: any) {
   const [uploading, setUploading] = useState(false);
   const [doneStatus, setDoneStatus] = useState(isDone);
+  const [evidenceObj, setEvidenceObj] = useState(evidenceData);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -735,37 +749,66 @@ function EvidenceItem({ title, description, isDone, masterId, childDeviceId, cat
       reader.onloadend = async () => {
         const base64String = reader.result as string;
 
-        // Auto-fetch GPS
-        navigator.geolocation.getCurrentPosition(async (pos) => {
-          const res = await fetch(`${API_URL}/api/v1/evidence`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
-            },
-            body: JSON.stringify({
-              masterId,
-              childDeviceId,
-              category,
-              imageBase64: base64String,
-              latitude: pos.coords.latitude,
-              longitude: pos.coords.longitude
-            })
-          });
+        const uploadWithCoords = async (latitude?: number, longitude?: number) => {
+          try {
+            const res = await fetch(`${API_URL}/api/v1/evidence`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+              },
+              body: JSON.stringify({
+                masterId,
+                childDeviceId,
+                category,
+                imageBase64: base64String,
+                latitude,
+                longitude
+              })
+            });
 
-          if (res.ok) setDoneStatus(true);
-          else alert('Upload failed');
-          setUploading(false);
-        }, () => {
-          alert('GPS is required for evidence upload.');
-          setUploading(false);
-        }, { enableHighAccuracy: true });
+            if (res.ok) {
+              const saved = await res.json();
+              setEvidenceObj(saved);
+              setDoneStatus(true);
+            } else {
+              const err = await res.json().catch(() => ({}));
+              alert(err.message || err.error || 'Upload failed');
+            }
+          } catch (err: any) {
+            console.error(err);
+            alert('Upload failed: ' + (err.message || 'Network error'));
+          } finally {
+            setUploading(false);
+          }
+        };
+
+        if ('geolocation' in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              uploadWithCoords(pos.coords.latitude, pos.coords.longitude);
+            },
+            (err) => {
+              console.warn('Geolocation unavailable, continuing upload without GPS:', err);
+              uploadWithCoords();
+            },
+            { enableHighAccuracy: true, timeout: 6000 }
+          );
+        } else {
+          uploadWithCoords();
+        }
       };
       reader.readAsDataURL(file);
     } catch (err) {
       console.error(err);
       setUploading(false);
     }
+  };
+
+  const getFullImageUrl = (url?: string) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `${API_URL}${url}`;
   };
 
   return (
@@ -777,9 +820,22 @@ function EvidenceItem({ title, description, isDone, masterId, childDeviceId, cat
         </h4>
         <p className="text-sm text-muted m-0 mt-1">{description}</p>
       </div>
-      <div>
+      <div className="flex items-center gap-3">
         {doneStatus ? (
-          <span className="badge" style={{backgroundColor: 'var(--success)'}}>Verified</span>
+          <>
+            {evidenceObj?.imageUrl && (
+              <a 
+                href={getFullImageUrl(evidenceObj.imageUrl)} 
+                target="_blank" 
+                rel="noreferrer" 
+                className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
+                style={{ textDecoration: 'none' }}
+              >
+                🔍 View Photo
+              </a>
+            )}
+            <span className="badge" style={{backgroundColor: 'var(--success)'}}>Verified</span>
+          </>
         ) : (
           <label className={`btn-primary cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
             {uploading ? 'Processing...' : 'Upload'}

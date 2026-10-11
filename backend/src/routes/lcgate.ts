@@ -132,12 +132,16 @@ router.get('/masters/:masterId/next-device-sequence', authenticate, async (req, 
     if (isNaN(masterId)) return res.status(400).json({ error: 'Invalid master ID' });
     
     const type = req.query.type as string;
-    const lastDevice = await prisma.childDevice.findFirst({
+    const existing = await prisma.childDevice.findMany({
       where: { masterId, ...(type ? { type } : {}) },
-      orderBy: { deviceSequence: 'desc' }
+      select: { deviceSequence: true }
     });
     
-    const nextSeq = lastDevice ? lastDevice.deviceSequence + 1 : 1;
+    const taken = new Set(existing.map(d => d.deviceSequence));
+    let nextSeq = 1;
+    while (taken.has(nextSeq)) {
+      nextSeq++;
+    }
     res.json({ nextSequence: nextSeq });
   } catch (error) {
     next(error);
@@ -146,7 +150,7 @@ router.get('/masters/:masterId/next-device-sequence', authenticate, async (req, 
 
 const createDeviceSchema = z.object({
   type: z.enum(['DEVICE_1', 'DEVICE_2']),
-  deviceSequence: z.number().int().min(1).max(99),
+  deviceSequence: z.number().int().min(1).max(99).optional(),
 });
 
 // Add a Child Device to a Master
@@ -163,18 +167,39 @@ router.post('/masters/:masterId/devices', authenticate, async (req, res, next) =
     }
 
     const letter = data.type === 'DEVICE_1' ? 'A' : 'B';
-    const serialNumber = `${master.serialNumber}-${letter}${data.deviceSequence.toString().padStart(2, '0')}`;
 
-    const existing = await prisma.childDevice.findUnique({ where: { serialNumber } });
-    if (existing) {
-      return res.status(400).json({ error: 'Slave device sequence already exists for this master' });
+    // Find all existing child devices for this master to inspect existing sequences
+    const existingDevices = await prisma.childDevice.findMany({
+      where: { masterId, type: data.type },
+      select: { deviceSequence: true, serialNumber: true }
+    });
+
+    const takenSequences = new Set(existingDevices.map(d => d.deviceSequence));
+    
+    let targetSequence = data.deviceSequence;
+    // If no sequence provided or if the requested sequence is already taken on this master, auto-calculate the next available
+    if (!targetSequence || takenSequences.has(targetSequence)) {
+      let nextSeq = 1;
+      while (takenSequences.has(nextSeq)) {
+        nextSeq++;
+      }
+      targetSequence = nextSeq;
+    }
+
+    // Ensure serialNumber is unique globally
+    let serialNumber = `${master.serialNumber}-${letter}${targetSequence.toString().padStart(2, '0')}`;
+    let existingSerial = await prisma.childDevice.findUnique({ where: { serialNumber } });
+    while (existingSerial) {
+      targetSequence++;
+      serialNumber = `${master.serialNumber}-${letter}${targetSequence.toString().padStart(2, '0')}`;
+      existingSerial = await prisma.childDevice.findUnique({ where: { serialNumber } });
     }
 
     const device = await prisma.childDevice.create({
       data: {
         type: data.type,
         serialNumber,
-        deviceSequence: data.deviceSequence,
+        deviceSequence: targetSequence,
         masterId,
       },
     });
