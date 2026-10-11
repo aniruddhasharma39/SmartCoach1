@@ -18,10 +18,18 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
+  static const List<Map<String, String>> _defaultModules = [
+    {'name': 'Manage Users', 'slug': 'manage-users'},
+    {'name': 'Roles', 'slug': 'roles'},
+    {'name': 'Registration Builder', 'slug': 'registration'},
+    {'name': 'Branding', 'slug': 'branding'},
+    {'name': 'Cluster', 'slug': 'cluster'},
+  ];
+
 class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> _users = [];
   List<dynamic> _roles = [];
-  List<dynamic> _systemModules = [];
+  List<dynamic> _systemModules = List.from(_defaultModules);
   bool _isLoading = false;
   String _currentView = 'home';
   String _appName = 'LC Platform';
@@ -42,30 +50,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     final token = await _getToken();
+    final headers = {'Authorization': 'Bearer $token'};
     try {
-      var resUsers = await http.get(Uri.parse('$baseUrl/users'), headers: {'Authorization': 'Bearer $token'});
-      var resRoles = await http.get(Uri.parse('$baseUrl/roles'), headers: {'Authorization': 'Bearer $token'});
-      var resMods = await http.get(Uri.parse('$baseUrl/modules'), headers: {'Authorization': 'Bearer $token'});
-      
-      var resBranding = await http.get(Uri.parse('$baseUrl/settings/branding'));
+      final results = await Future.wait([
+        http.get(Uri.parse('$baseUrl/users'), headers: headers),
+        http.get(Uri.parse('$baseUrl/roles'), headers: headers),
+        http.get(Uri.parse('$baseUrl/modules'), headers: headers),
+        http.get(Uri.parse('$baseUrl/settings/branding')),
+      ]);
+
+      final resUsers = results[0];
+      final resRoles = results[1];
+      final resMods = results[2];
+      final resBranding = results[3];
 
       setState(() {
-        final data = json.decode(resUsers.body);
-        _users = data is Map && data['users'] != null ? data['users'] : [];
-        _pendingRequests = data is Map && data['pendingRequests'] != null ? data['pendingRequests'] : [];
+        try {
+          final data = json.decode(resUsers.body);
+          _users = data is Map && data['users'] != null ? data['users'] : [];
+          _pendingRequests = data is Map && data['pendingRequests'] != null ? data['pendingRequests'] : [];
+        } catch (_) {}
         
-        final rolesData = json.decode(resRoles.body);
-        _roles = rolesData is List ? rolesData : [];
+        try {
+          final rolesData = json.decode(resRoles.body);
+          _roles = rolesData is List ? rolesData : [];
+        } catch (_) {}
         
-        final modsData = json.decode(resMods.body);
-        _systemModules = modsData is List ? modsData : [];
+        try {
+          final modsData = json.decode(resMods.body);
+          if (modsData is List && modsData.isNotEmpty) {
+            _systemModules = modsData;
+          }
+        } catch (_) {}
 
         try {
           final brandingData = json.decode(resBranding.body);
           if (brandingData is Map && brandingData['appName'] != null) {
             _appName = brandingData['appName'];
           }
-        } catch (e) {}
+        } catch (_) {}
       });
     } catch (e) {
       print(e);
@@ -186,7 +209,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               setState(() { _currentView = 'home'; });
               Navigator.pop(context);
             }),
-            ..._systemModules.where((m) => (widget.user['allowedModules'] as List).contains(m['slug'])).map((m) {
+            ..._systemModules.where((m) {
+              if (widget.user['role'] == 'Developer') return true;
+              final allowed = widget.user['allowedModules'];
+              return allowed is List && allowed.contains(m['slug']);
+            }).map((m) {
               return ListTile(
                 title: Text(m['name']),
                 leading: Icon(getIconForModule(m['slug'])),

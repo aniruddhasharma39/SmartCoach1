@@ -11,15 +11,23 @@ type Props = {
   onLogout: () => void;
 };
 
+const DEFAULT_SYSTEM_MODULES = [
+  { name: 'Manage Users', slug: 'manage-users' },
+  { name: 'Roles', slug: 'roles' },
+  { name: 'Registration Builder', slug: 'registration' },
+  { name: 'Branding', slug: 'branding' },
+  { name: 'Cluster', slug: 'cluster' },
+];
+
 export default function Dashboard({ user, onLogout }: Props) {
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<string>('home');
-  const [systemModules, setSystemModules] = useState<any[]>([]);
+  const [systemModules, setSystemModules] = useState<any[]>(DEFAULT_SYSTEM_MODULES);
   const [branding, setBranding] = useState({ appName: 'LC Platform' });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [isInitializing, setIsInitializing] = useState(false);
 
   const fetchUsers = async () => {
     if (user.role !== 'Developer') return;
@@ -50,7 +58,7 @@ export default function Dashboard({ user, onLogout }: Props) {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
-      setRoles(data);
+      if (Array.isArray(data)) setRoles(data);
     } catch (err) {
       console.error(err);
     }
@@ -62,20 +70,17 @@ export default function Dashboard({ user, onLogout }: Props) {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
-      if (Array.isArray(data)) {
+      if (Array.isArray(data) && data.length > 0) {
         setSystemModules(data);
-      } else {
-        setSystemModules([]);
       }
     } catch (err) {
       console.error(err);
-      setSystemModules([]);
     }
   };
 
   const fetchBranding = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/branding`);
+      const res = await fetch(`${API_URL}/api/v1/settings/branding`);
       const data = await res.json();
       if(data && data.appName) setBranding(data);
     } catch (err) {
@@ -84,12 +89,11 @@ export default function Dashboard({ user, onLogout }: Props) {
   };
 
   useEffect(() => {
-    Promise.all([
-      fetchRoles(),
-      fetchUsers(),
-      fetchSystemModules(),
-      fetchBranding()
-    ]).finally(() => setIsInitializing(false));
+    // Fetch in parallel in background without blocking immediate UI rendering
+    fetchRoles();
+    fetchUsers();
+    fetchSystemModules();
+    fetchBranding();
   }, []);
 
   const getDisplayData = (req: any, reqData: any) => {
@@ -225,16 +229,21 @@ export default function Dashboard({ user, onLogout }: Props) {
         <nav className="sidebar-nav">
           <a href="#" className={`nav-item ${currentView === 'home' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setCurrentView('home'); }}>Home</a>
           
-          {systemModules.filter(m => user.allowedModules?.includes(m.slug)).map(mod => (
-            <a 
-              key={mod.slug} 
-              href="#" 
-              className={`nav-item ${currentView === mod.slug ? 'active' : ''}`} 
-              onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); }}
-            >
-              {mod.name}
-            </a>
-          ))}
+          {(() => {
+            const isDev = user.role === 'Developer';
+            const modulesToShow = (systemModules.length > 0 ? systemModules : DEFAULT_SYSTEM_MODULES)
+              .filter(m => isDev || (user.allowedModules && user.allowedModules.includes(m.slug)));
+            return modulesToShow.map(mod => (
+              <a 
+                key={mod.slug} 
+                href="#" 
+                className={`nav-item ${currentView === mod.slug ? 'active' : ''}`} 
+                onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); }}
+              >
+                {mod.name}
+              </a>
+            ));
+          })()}
         </nav>
       </div>
 

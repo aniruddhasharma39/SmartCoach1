@@ -86,12 +86,31 @@ router.post('/register', upload.any(), async (req, res, next) => {
 
 router.get('/registration-form', async (req, res, next) => {
   try {
-    const form = await prisma.registrationForm.findFirst({
+    let form = await prisma.registrationForm.findFirst({
       where: { status: 'LIVE' }
     });
     
     if (!form) {
-      return res.status(404).json({ error: 'No active registration form available.' });
+      const defaultSchema = {
+        fields: [
+          { id: '1', type: 'text', name: 'fullName', label: 'Full Name', required: true, placeholder: 'Enter your full name' },
+          { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, placeholder: '10-digit mobile number' },
+          { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, placeholder: 'name@example.com' },
+          { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, placeholder: 'e.g. EMP-101' },
+          { id: '5', type: 'text', name: 'department', label: 'Department', required: true, placeholder: 'e.g. Engineering' },
+          { id: '6', type: 'password', name: 'password', label: 'Password', required: true, placeholder: 'Create a password' }
+        ],
+        allowRoles: true
+      };
+
+      form = await prisma.registrationForm.create({
+        data: {
+          name: 'Standard Registration Form',
+          schema: JSON.stringify(defaultSchema),
+          status: 'LIVE',
+          version: 1
+        }
+      });
     }
     
     const roles = await prisma.role.findMany({

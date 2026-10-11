@@ -16,7 +16,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
 
 // Public: Get Branding
-router.get('/branding', async (req, res, next) => {
+const getBrandingHandler = async (req: any, res: any, next: any) => {
   try {
     const appName = await prisma.appSetting.findUnique({ where: { key: 'APP_NAME' } });
     const wallpaper = await prisma.appSetting.findUnique({ where: { key: 'WALLPAPER_URL' } });
@@ -28,7 +28,10 @@ router.get('/branding', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+};
+
+router.get('/branding', getBrandingHandler);
+router.get('/', getBrandingHandler);
 
 // Admin: Update Branding
 const updateBrandingSchema = z.object({

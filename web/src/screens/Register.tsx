@@ -6,6 +6,18 @@ type Props = {
   onGoToLogin: () => void;
 };
 
+const DEFAULT_FALLBACK_SCHEMA = {
+  fields: [
+    { id: '1', type: 'text', name: 'fullName', label: 'Full Name', required: true, placeholder: 'Enter your full name' },
+    { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, placeholder: '10-digit mobile number' },
+    { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, placeholder: 'name@example.com' },
+    { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, placeholder: 'e.g. EMP-101' },
+    { id: '5', type: 'text', name: 'department', label: 'Department', required: true, placeholder: 'e.g. Engineering' },
+    { id: '6', type: 'password', name: 'password', label: 'Password', required: true, placeholder: 'Create a password' }
+  ],
+  allowRoles: true
+};
+
 export default function Register({ onGoToLogin }: Props) {
   const [schema, setSchema] = useState<any>(null);
   const [roles, setRoles] = useState<any[]>([]);
@@ -18,6 +30,9 @@ export default function Register({ onGoToLogin }: Props) {
     const fetchForm = async () => {
       try {
         const res = await fetch(`${API_URL}/api/v1/auth/registration-form`);
+        if (!res.ok) {
+          throw new Error('Registration form not available');
+        }
         const data = await res.json();
         
         if (data.form) {
@@ -29,12 +44,22 @@ export default function Register({ onGoToLogin }: Props) {
           } else {
             setSchema(parsed);
           }
+        } else {
+          setSchema(DEFAULT_FALLBACK_SCHEMA);
         }
         if (data.roles) {
           setRoles(data.roles);
         }
       } catch (err) {
-        console.error(err);
+        console.warn('Using default registration schema:', err);
+        setSchema(DEFAULT_FALLBACK_SCHEMA);
+        // Also fetch roles independently if possible
+        fetch(`${API_URL}/api/v1/roles`)
+          .then(r => r.json())
+          .then(data => {
+            if (Array.isArray(data)) setRoles(data.filter((r: any) => r.name !== 'Developer'));
+          })
+          .catch(() => {});
       }
     };
     fetchForm();

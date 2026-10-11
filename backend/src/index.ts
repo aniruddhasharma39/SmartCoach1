@@ -26,6 +26,7 @@ app.use('/api/v1/roles', rolesRoutes);
 app.use('/api/v1/modules', modulesRoutes);
 app.use('/api/v1/registration-forms', registrationFormsRoutes);
 app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/branding', settingsRoutes);
 app.use('/api/v1/lcgate', lcgateRoutes);
 app.use('/api/v1/evidence', evidenceRoutes);
 
