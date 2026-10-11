@@ -23,8 +23,8 @@ export default function FormRenderer({ schema, roles, onSubmit, isSubmitting }: 
       if (pattern && !new RegExp(pattern).test(val)) return customError || 'Invalid format';
     } else {
       // Default validations if no custom rules
-      if (field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return 'Invalid email format';
-      if (field.type === 'phone' && !/^\d{10}$/.test(val)) return 'Phone number must be 10 digits';
+      if (field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) return 'Invalid email format (must include @ and valid domain)';
+      if (field.type === 'phone' && !/^[6-9]\d{9}$/.test(val)) return 'Mobile number must be a 10-digit Indian number starting with 6, 7, 8, or 9';
     }
     return null;
   };

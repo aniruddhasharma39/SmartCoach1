@@ -132,13 +132,30 @@ export default function RegistrationBuilder() {
         if (f.validation.minLength && f.validation.maxLength && f.validation.minLength > f.validation.maxLength) {
           errors.push(`Field '${f.label}' has contradictory validation (min > max)`);
         }
-      }
       if (f.children) {
         f.children.forEach(checkField);
       }
     };
 
     fields.forEach(checkField);
+
+    let hasRequiredEmail = false;
+    let hasRequiredPhone = false;
+    const checkContactFields = (f: FormField) => {
+      if ((f.type === 'email' || f.name.toLowerCase().includes('email')) && f.required) {
+        hasRequiredEmail = true;
+      }
+      if ((f.type === 'phone' || f.name.toLowerCase().includes('mobile') || f.name.toLowerCase().includes('phone')) && f.required) {
+        hasRequiredPhone = true;
+      }
+      if (f.children) f.children.forEach(checkContactFields);
+    };
+    fields.forEach(checkContactFields);
+
+    if (!hasRequiredEmail && !hasRequiredPhone) {
+      errors.push('Registration form must have at least one mandatory contact method (either Email Address or Mobile Number marked as Required) to enable OTP login and user verification.');
+    }
+
     return errors;
   };
 

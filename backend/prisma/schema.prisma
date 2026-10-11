@@ -158,3 +158,16 @@ model InstallationEvidence {
   updatedAt     DateTime     @updatedAt
 }
 
+model OtpVerification {
+  id         Int      @id @default(autoincrement())
+  identifier String
+  type       String   // EMAIL or PHONE
+  otp        String
+  expiresAt  DateTime
+  verified   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([identifier, type])
+}
+
+
