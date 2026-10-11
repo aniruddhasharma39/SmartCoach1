@@ -132,6 +132,7 @@ export default function RegistrationBuilder() {
         if (f.validation.minLength && f.validation.maxLength && f.validation.minLength > f.validation.maxLength) {
           errors.push(`Field '${f.label}' has contradictory validation (min > max)`);
         }
+      }
       if (f.children) {
         f.children.forEach(checkField);
       }
