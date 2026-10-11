@@ -28,8 +28,10 @@ export default function Dashboard({ user, onLogout }: Props) {
   const [branding, setBranding] = useState({ appName: 'LC Platform' });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
+  const canManageUsers = user.role === 'Developer' || user.allowedModules?.includes('manage-users');
+
   const fetchUsers = async () => {
-    if (user.role !== 'Developer') return;
+    if (!canManageUsers) return;
     try {
       const res = await fetch(`${API_URL}/api/v1/users`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
@@ -94,6 +96,12 @@ export default function Dashboard({ user, onLogout }: Props) {
     fetchSystemModules();
     fetchBranding();
   }, []);
+
+  useEffect(() => {
+    if (currentView === 'manage-users' && canManageUsers) {
+      fetchUsers();
+    }
+  }, [currentView]);
 
   const getDisplayData = (req: any, reqData: any) => {
     let schema: any = null;
@@ -333,6 +341,11 @@ export default function Dashboard({ user, onLogout }: Props) {
 
               {activeTab === 'existing' && (
                 <div className="flex-col">
+                  {Object.keys(usersByRole).length === 0 && (
+                    <div className="card text-center text-muted" style={{ padding: '2rem' }}>
+                      No existing users found.
+                    </div>
+                  )}
                   {Object.entries(usersByRole).map(([roleName, roleUsers]) => (
                     <div key={roleName}>
                       <div 

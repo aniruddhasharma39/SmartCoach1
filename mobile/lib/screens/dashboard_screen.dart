@@ -34,12 +34,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _currentView = 'home';
   String _appName = 'LC Platform';
 
+  bool get _canManageUsers =>
+      widget.user['role'] == 'Developer' ||
+      ((widget.user['allowedModules'] as List?)?.contains('manage-users') ?? false);
+
   @override
   void initState() {
     super.initState();
-    if (widget.user['role'] == 'Developer') {
-      _fetchData();
-    }
+    _fetchData();
   }
 
   Future<String> _getToken() async {
@@ -52,12 +54,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final token = await _getToken();
     final headers = {'Authorization': 'Bearer $token'};
     try {
-      final results = await Future.wait([
-        http.get(Uri.parse('$baseUrl/users'), headers: headers),
+      final futures = <Future<http.Response>>[
+        _canManageUsers
+            ? http.get(Uri.parse('$baseUrl/users'), headers: headers)
+            : Future.value(http.Response('{"users":[],"pendingRequests":[]}', 200)),
         http.get(Uri.parse('$baseUrl/roles'), headers: headers),
         http.get(Uri.parse('$baseUrl/modules'), headers: headers),
         http.get(Uri.parse('$baseUrl/settings/branding')),
-      ]);
+      ];
+      final results = await Future.wait(futures);
 
       final resUsers = results[0];
       final resRoles = results[1];
