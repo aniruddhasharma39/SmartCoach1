@@ -91,7 +91,7 @@ router.put('/request/:id/approve', requireModule('manage-users'), async (req: an
 
     for (const [k, v] of Object.entries(formData)) {
       if (k === 'password') continue;
-      const field = allFields.find(f => f.name === k);
+      const field = allFields.find(f => f.name === k || f.id === k);
       const label = field ? field.label : k;
       mappedMetadata[label] = v;
     }

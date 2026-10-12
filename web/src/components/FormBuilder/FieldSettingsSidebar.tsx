@@ -47,14 +47,51 @@ export default function FieldSettingsSidebar({ field, updateField, close }: Prop
       <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Core Settings */}
         <div>
-          <label className="text-sm fw-bold">Label</label>
-          <input type="text" value={field.label} onChange={(e) => handleChange('label', e.target.value)} />
+          <label className="text-sm fw-bold">Label (Display Name)</label>
+          <input 
+            type="text" 
+            value={field.label} 
+            placeholder="e.g. Gender, Profile Photo, ID Proof"
+            onChange={(e) => {
+              const newLabel = e.target.value;
+              const isDefaultName = !field.name || field.name.startsWith('field_') || field.name.startsWith('new_') || field.name === field.type;
+              if (isDefaultName && newLabel.trim().length > 0) {
+                const cleanSlug = newLabel
+                  .trim()
+                  .replace(/[^a-zA-Z0-9 ]/g, '')
+                  .split(' ')
+                  .filter(Boolean)
+                  .map((word, idx) => idx === 0 ? word.toLowerCase() : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                  .join('');
+                updateField(field.id, { label: newLabel, name: cleanSlug || field.name });
+              } else {
+                handleChange('label', newLabel);
+              }
+            }} 
+          />
+          <small className="text-muted block mt-1">What users see on the registration form.</small>
         </div>
         
         {field.type !== 'section' && (
           <div>
-            <label className="text-sm fw-bold">Field Key (API Name)</label>
-            <input type="text" value={field.name} onChange={(e) => handleChange('name', e.target.value)} />
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-sm fw-bold">Field Key (API Name)</label>
+              <span className="badge" style={{ fontSize: '0.72rem', backgroundColor: '#e2e8f0', color: '#475569' }}>
+                Key in Database
+              </span>
+            </div>
+            <input 
+              type="text" 
+              value={field.name} 
+              placeholder="e.g. gender, profilePhoto, idProof"
+              onChange={(e) => {
+                const clean = e.target.value.replace(/[^a-zA-Z0-9_]/g, '');
+                handleChange('name', clean);
+              }} 
+            />
+            <small className="text-muted block mt-1">
+              Clean identifier used in database and APIs (e.g. <code>gender</code> instead of <code>field_179...</code>).
+            </small>
           </div>
         )}
 

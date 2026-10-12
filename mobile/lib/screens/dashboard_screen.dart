@@ -18,13 +18,13 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-  static const List<Map<String, String>> _defaultModules = [
-    {'name': 'Manage Users', 'slug': 'manage-users'},
-    {'name': 'Roles', 'slug': 'roles'},
-    {'name': 'Registration Builder', 'slug': 'registration'},
-    {'name': 'Branding', 'slug': 'branding'},
-    {'name': 'Cluster', 'slug': 'cluster'},
-  ];
+const List<Map<String, String>> _defaultModules = [
+  {'name': 'Manage Users', 'slug': 'manage-users'},
+  {'name': 'Roles', 'slug': 'roles'},
+  {'name': 'Registration Builder', 'slug': 'registration'},
+  {'name': 'Branding', 'slug': 'branding'},
+  {'name': 'Cluster', 'slug': 'cluster'},
+];
 
 class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> _users = [];
@@ -296,7 +296,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       itemBuilder: (c, i) {
         final req = pending[i];
         final reqData = json.decode(req['data'] ?? '{}');
+        final form = req['form'] as Map<String, dynamic>?;
         int selectedRole = req['requestedRoleId'] ?? (_roles.isNotEmpty ? _roles[0]['id'] : 0);
+
+        // Find best display name for user
+        String displayName = reqData['fullName'] ?? '';
+        if (displayName.isEmpty) {
+          for (var entry in reqData.entries) {
+            final info = _resolveFieldInfo(form, entry.key);
+            if (info['label'].toString().toLowerCase().contains('name') && entry.value.toString().isNotEmpty) {
+              displayName = entry.value.toString();
+              break;
+            }
+          }
+        }
+        if (displayName.isEmpty) displayName = 'Pending User';
         
         return Card(
           elevation: 2,
@@ -311,7 +325,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('${reqData['fullName'] ?? 'Pending User'}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary)),
+                    Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.primary)),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(16)),
@@ -319,16 +333,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   ],
                 ),
+                if (form != null && form['name'] != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Form: ${form['name']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
+                  ),
                 const Divider(height: 24),
                 ...reqData.entries.where((e) => !e.key.toLowerCase().contains('password')).map((e) {
-                  // No fallback needed anymore since the DB contains proper labels
+                  final fieldInfo = _resolveFieldInfo(form, e.key);
+                  final label = fieldInfo['label'] ?? e.key;
+                  final isImg = _isImageUrl(e.value, fieldInfo['type']);
+
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.only(bottom: 10),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(flex: 2, child: Text(e.key, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500))),
-                        Expanded(flex: 3, child: Text(e.value.toString(), style: const TextStyle(fontSize: 13))),
+                        Expanded(flex: 2, child: Text(label, style: TextStyle(color: Colors.grey.shade700, fontSize: 13, fontWeight: FontWeight.w600))),
+                        Expanded(
+                          flex: 3, 
+                          child: isImg
+                              ? Align(alignment: Alignment.centerLeft, child: _buildImageThumbnail(e.value.toString(), label))
+                              : Text(e.value.toString(), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                        ),
                       ],
                     ),
                   );
@@ -367,6 +394,146 @@ class _DashboardScreenState extends State<DashboardScreen> {
           )
         );
       }
+    );
+  }
+
+  Map<String, dynamic> _resolveFieldInfo(Map<String, dynamic>? form, String key) {
+    if (form != null && form['schema'] != null) {
+      try {
+        final schemaRaw = form['schema'];
+        final schema = schemaRaw is String ? json.decode(schemaRaw) : schemaRaw;
+        final fields = schema is Map ? (schema['fields'] as List? ?? []) : (schema is List ? schema : []);
+        
+        Map<String, dynamic>? findInList(List<dynamic> list) {
+          for (var item in list) {
+            if (item is Map) {
+              if (item['type'] == 'section' && item['children'] is List) {
+                final found = findInList(item['children']);
+                if (found != null) return found;
+              } else if (item['name'] == key || item['id'] == key) {
+                return Map<String, dynamic>.from(item);
+              }
+            }
+          }
+          return null;
+        }
+
+        final match = findInList(fields);
+        if (match != null && match['label'] != null && match['label'].toString().trim().isNotEmpty) {
+          return {
+            'label': match['label'].toString(),
+            'type': match['type']?.toString() ?? 'text'
+          };
+        }
+      } catch (_) {}
+    }
+
+    return {'label': _humanizeKey(key), 'type': 'text'};
+  }
+
+  String _humanizeKey(String key) {
+    if (key == 'fullName') return 'Full Name';
+    if (key == 'mobile') return 'Mobile Number';
+    if (key == 'email') return 'Email Address';
+    if (key == 'employeeId') return 'Employee ID';
+    if (key == 'department') return 'Department';
+    if (key == 'roleId') return 'Requested Role ID';
+    if (key.startsWith('field_')) {
+      final sub = key.substring(6);
+      return sub.length > 6 ? 'Custom Field (${sub.substring(sub.length - 4)})' : 'Custom Field ($sub)';
+    }
+    final spaced = key.replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}').replaceAll('_', ' ').trim();
+    if (spaced.isEmpty) return key;
+    return spaced[0].toUpperCase() + spaced.substring(1);
+  }
+
+  bool _isImageUrl(dynamic val, String? type) {
+    if (val == null) return false;
+    final str = val.toString().trim();
+    if (type == 'image') return true;
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      final lower = str.toLowerCase();
+      if (lower.contains('/image/upload/') || lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Widget _buildImageThumbnail(String url, String label) {
+    return InkWell(
+      onTap: () {
+        showDialog(
+          context: context,
+          builder: (ctx) => Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.all(16),
+            child: Stack(
+              alignment: Alignment.topRight,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          url,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (c, child, p) => p == null ? child : const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator())),
+                          errorBuilder: (c, e, s) => const Padding(padding: EdgeInsets.all(24), child: Text('Failed to load image')),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: IconButton(
+                    icon: const CircleAvatar(backgroundColor: Colors.black54, radius: 14, child: Icon(Icons.close, color: Colors.white, size: 16)),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      child: Container(
+        height: 60,
+        width: 90,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Image.network(
+              url,
+              fit: BoxFit.cover,
+              width: double.infinity,
+              height: double.infinity,
+              errorBuilder: (context, error, stackTrace) => const Center(child: Icon(Icons.broken_image, size: 20, color: Colors.grey)),
+            ),
+            Positioned(
+              bottom: 2,
+              right: 2,
+              child: Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(4)),
+                child: const Icon(Icons.zoom_in, color: Colors.white, size: 12),
+              ),
+            )
+          ],
+        ),
+      ),
     );
   }
 
@@ -421,16 +588,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       List<Widget> metaWidgets = [];
                       metadata.forEach((k, v) {
                         if (k.toLowerCase().contains('password')) return;
-                        if (k.startsWith('field_')) return; // Just in case, skip unmapped legacy keys
+                        final displayKey = _humanizeKey(k);
+                        final isImg = _isImageUrl(v, null);
                         
                         metaWidgets.add(
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 4),
+                            padding: const EdgeInsets.only(bottom: 6),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(flex: 2, child: Text(k, style: const TextStyle(color: Colors.grey, fontSize: 12))),
-                                Expanded(flex: 3, child: Text(v.toString(), style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12))),
+                                Expanded(flex: 2, child: Text(displayKey, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500))),
+                                Expanded(
+                                  flex: 3, 
+                                  child: isImg
+                                      ? Align(alignment: Alignment.centerLeft, child: _buildImageThumbnail(v.toString(), displayKey))
+                                      : Text(v.toString(), style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+                                ),
                               ],
                             ),
                           )
