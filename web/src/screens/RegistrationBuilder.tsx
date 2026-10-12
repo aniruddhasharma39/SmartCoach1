@@ -3,7 +3,13 @@ import type { FormField, FormSchema } from '../types/form';
 import FieldSettingsSidebar from '../components/FormBuilder/FieldSettingsSidebar';
 import FormRenderer from '../components/FormBuilder/FormRenderer';
 import { removeNode, insertBefore, appendToSection } from '../utils/tree';
-import { FaGripVertical, FaTrash, FaFolder, FaFont, FaHashtag, FaEnvelope, FaPhone, FaLock, FaCheckSquare, FaCircle, FaCaretSquareDown, FaCalendar, FaImage, FaPlus, FaMobileAlt, FaDesktop, FaExclamationTriangle } from 'react-icons/fa';
+import { 
+  FaGripVertical, FaTrash, FaFolder, FaFont, FaHashtag, FaEnvelope, 
+  FaPhone, FaLock, FaCheckSquare, FaCircle, FaCaretSquareDown, 
+  FaCalendar, FaImage, FaPlus, FaMobileAlt, FaDesktop, 
+  FaExclamationTriangle, FaSpinner, FaCheck, FaSave, FaEye, 
+  FaCloudUploadAlt, FaCheckCircle, FaTimesCircle, FaInfoCircle 
+} from 'react-icons/fa';
 import { API_URL } from '../config';
 
 export default function RegistrationBuilder() {
@@ -21,6 +27,21 @@ export default function RegistrationBuilder() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewWidth, setPreviewWidth] = useState<'web' | 'mobile'>('web');
   const [systemRoles, setSystemRoles] = useState<any[]>([]);
+
+  // Action / Button States for UI/UX Acknowledgement
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'published' | 'error'>('idle');
+  const [previewStatus, setPreviewStatus] = useState<'idle' | 'loading'>('idle');
+  const [isCreatingForm, setIsCreatingForm] = useState(false);
+  const [deletingFormId, setDeletingFormId] = useState<number | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'danger' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'danger' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => prev?.message === message ? null : prev);
+    }, 3200);
+  };
 
   // Drag state
 
@@ -54,6 +75,7 @@ export default function RegistrationBuilder() {
   }, []);
 
   const createForm = async () => {
+    setIsCreatingForm(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/registration-forms`, {
         method: 'POST',
@@ -65,13 +87,18 @@ export default function RegistrationBuilder() {
       });
       const data = await res.json();
       setForms([data, ...forms]);
+      showToast('New registration form created successfully!');
     } catch (err) {
       console.error(err);
+      showToast('Failed to create form template', 'danger');
+    } finally {
+      setIsCreatingForm(false);
     }
   };
 
   const deleteForm = async (id: number) => {
     if (!confirm('Are you sure you want to delete this form?')) return;
+    setDeletingFormId(id);
     try {
       const res = await fetch(`${API_URL}/api/v1/registration-forms/${id}`, {
         method: 'DELETE',
@@ -79,12 +106,16 @@ export default function RegistrationBuilder() {
       });
       if (res.ok) {
         setForms(forms.filter(f => f.id !== id));
+        showToast('Form template deleted successfully');
       } else {
         const err = await res.json();
-        alert(err.error || 'Failed to delete form');
+        showToast(err.error || 'Failed to delete form', 'danger');
       }
     } catch (err) {
       console.error(err);
+      showToast('Error deleting form', 'danger');
+    } finally {
+      setDeletingFormId(null);
     }
   };
 
@@ -100,12 +131,18 @@ export default function RegistrationBuilder() {
     }
     setActiveFieldId(null);
     setBuilderErrors([]);
+    setSaveStatus('idle');
+    setPublishStatus('idle');
+    setPreviewStatus('idle');
   };
 
   const closeForm = () => {
     if (confirm('Leave without saving? Any unsaved changes will be lost.')) {
       setEditingForm(null);
       setFields([]);
+      setSaveStatus('idle');
+      setPublishStatus('idle');
+      setPreviewStatus('idle');
     }
   };
 
@@ -160,6 +197,21 @@ export default function RegistrationBuilder() {
     return errors;
   };
 
+  const handlePreview = () => {
+    const errors = validateBuilder();
+    setBuilderErrors(errors);
+    setPreviewStatus('loading');
+    setTimeout(() => {
+      setShowPreview(true);
+      setPreviewStatus('idle');
+      if (errors.length > 0) {
+        showToast(`Preview loaded with ${errors.length} validation warning(s)`, 'info');
+      } else {
+        showToast('Live preview generated successfully');
+      }
+    }, 300);
+  };
+
   const saveForm = async () => {
     if (!editingForm) return;
     
@@ -169,6 +221,7 @@ export default function RegistrationBuilder() {
       if (!confirm(`Warning: Your form has ${errors.length} validation errors. Save draft anyway?`)) return;
     }
 
+    setSaveStatus('saving');
     try {
       const payload: FormSchema = { fields, allowRoles };
       const res = await fetch(`${API_URL}/api/v1/registration-forms/${editingForm.id}`, {
@@ -182,11 +235,21 @@ export default function RegistrationBuilder() {
       if (res.ok) {
         const updated = await res.json();
         setEditingForm(updated);
-        alert('Draft saved successfully!');
+        setSaveStatus('saved');
+        showToast('Draft saved successfully!');
         fetchForms();
+        setTimeout(() => setSaveStatus('idle'), 2500);
+      } else {
+        const err = await res.json();
+        setSaveStatus('error');
+        showToast(err.error || 'Failed to save draft', 'danger');
+        setTimeout(() => setSaveStatus('idle'), 2500);
       }
     } catch (err) {
       console.error(err);
+      setSaveStatus('error');
+      showToast('Error saving draft form', 'danger');
+      setTimeout(() => setSaveStatus('idle'), 2500);
     }
   };
 
@@ -195,11 +258,12 @@ export default function RegistrationBuilder() {
     const errors = validateBuilder();
     if (errors.length > 0) {
       setBuilderErrors(errors);
-      alert('Cannot publish. Please fix validation errors first.');
+      showToast('Cannot publish. Please fix validation errors first.', 'danger');
       return;
     }
 
     if (confirm('Are you sure you want to publish this form? This will become the live registration form for all new users.')) {
+      setPublishStatus('publishing');
       try {
         const payload: FormSchema = { fields, allowRoles };
         
@@ -219,12 +283,24 @@ export default function RegistrationBuilder() {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
         });
         if (res.ok) {
-          alert('Form published successfully!');
-          fetchForms();
-          setEditingForm(null);
+          setPublishStatus('published');
+          showToast('Form published successfully! Now live for all registrations.');
+          setTimeout(() => {
+            fetchForms();
+            setEditingForm(null);
+            setPublishStatus('idle');
+          }, 1500);
+        } else {
+          const err = await res.json();
+          setPublishStatus('error');
+          showToast(err.error || 'Failed to publish form', 'danger');
+          setTimeout(() => setPublishStatus('idle'), 2500);
         }
       } catch (err) {
         console.error(err);
+        setPublishStatus('error');
+        showToast('Error publishing form live', 'danger');
+        setTimeout(() => setPublishStatus('idle'), 2500);
       }
     }
   };
@@ -374,7 +450,16 @@ export default function RegistrationBuilder() {
     })() : null;
 
     return (
-      <div className="flex-col h-full">
+      <div className="flex-col h-full" style={{ position: 'relative' }}>
+        {toast && (
+          <div className={`toast-banner ${toast.type}`}>
+            {toast.type === 'success' && <FaCheckCircle size={16} />}
+            {toast.type === 'danger' && <FaTimesCircle size={16} />}
+            {toast.type === 'info' && <FaInfoCircle size={16} />}
+            <span>{toast.message}</span>
+          </div>
+        )}
+
         <div className="card flex justify-between items-center" style={{ borderRadius: 0, borderBottom: '1px solid var(--border)', padding: '16px 24px' }}>
           <div>
             <h2 style={{ margin: 0 }}>
@@ -391,10 +476,77 @@ export default function RegistrationBuilder() {
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="secondary outline" onClick={closeForm}>Cancel</button>
-            <button className="secondary" onClick={() => { setBuilderErrors(validateBuilder()); setShowPreview(true); }}>Preview</button>
-            <button className="primary" onClick={saveForm}>Save Draft</button>
-            <button className="primary outline" onClick={publishForm}>Publish Live</button>
+            <button 
+              className="secondary outline" 
+              onClick={closeForm}
+              title="Leave form builder and discard unsaved changes"
+              data-tooltip="Discard unsaved changes"
+              data-tooltip-pos="bottom"
+            >
+              Cancel
+            </button>
+            <button 
+              className="secondary flex items-center gap-2" 
+              disabled={previewStatus === 'loading'}
+              onClick={handlePreview}
+              title="Preview form layout and interactive behavior across devices"
+              data-tooltip="Preview form on Web & Mobile"
+              data-tooltip-pos="bottom"
+            >
+              {previewStatus === 'loading' ? (
+                <>
+                  <FaSpinner className="spin" /> Opening Preview...
+                </>
+              ) : (
+                <>
+                  <FaEye /> Preview
+                </>
+              )}
+            </button>
+            <button 
+              className={`primary flex items-center gap-2 ${saveStatus === 'saved' ? 'btn-success-state' : ''}`}
+              disabled={saveStatus === 'saving'}
+              onClick={saveForm}
+              title="Save current form layout and field configuration as draft"
+              data-tooltip="Save changes as draft"
+              data-tooltip-pos="bottom"
+            >
+              {saveStatus === 'saving' ? (
+                <>
+                  <FaSpinner className="spin" /> Saving Draft...
+                </>
+              ) : saveStatus === 'saved' ? (
+                <>
+                  <FaCheck /> Draft Saved!
+                </>
+              ) : (
+                <>
+                  <FaSave /> Save Draft
+                </>
+              )}
+            </button>
+            <button 
+              className={`primary outline flex items-center gap-2 ${publishStatus === 'published' ? 'btn-success-state' : ''}`}
+              disabled={publishStatus === 'publishing'}
+              onClick={publishForm}
+              title="Publish this form live for public user registrations"
+              data-tooltip="Publish form live for registrations"
+              data-tooltip-pos="bottom"
+            >
+              {publishStatus === 'publishing' ? (
+                <>
+                  <FaSpinner className="spin" /> Publishing Live...
+                </>
+              ) : publishStatus === 'published' ? (
+                <>
+                  <FaCheck /> Published!
+                </>
+              ) : (
+                <>
+                  <FaCloudUploadAlt /> Publish Live
+                </>
+              )}
+            </button>
           </div>
         </div>
 
@@ -430,7 +582,12 @@ export default function RegistrationBuilder() {
                   key={f.type}
                   className="secondary outline text-left flex gap-2 items-center" 
                   style={{ width: '100%', justifyContent: 'flex-start' }}
-                  onClick={() => handleAddField(f.type as any)}
+                  onClick={() => {
+                    handleAddField(f.type as any);
+                    showToast(`Added ${f.label} field`, 'info');
+                  }}
+                  title={`Add ${f.label} to form`}
+                  data-tooltip={`Add ${f.label}`}
                 >
                   <f.icon /> {f.label}
                 </button>
@@ -491,16 +648,40 @@ export default function RegistrationBuilder() {
               <div className="flex justify-between items-center mb-4 pb-4 border-bottom">
                 <h3>Live Preview</h3>
                 <div className="flex gap-2">
-                  <button className={`secondary ${previewWidth === 'web' ? '' : 'outline'} flex items-center gap-2`} onClick={() => setPreviewWidth('web')}><FaDesktop /> Web</button>
-                  <button className={`secondary ${previewWidth === 'mobile' ? '' : 'outline'} flex items-center gap-2`} onClick={() => setPreviewWidth('mobile')}><FaMobileAlt /> Mobile</button>
-                  <button className="icon-btn" onClick={() => setShowPreview(false)}>X</button>
+                  <button 
+                    className={`secondary ${previewWidth === 'web' ? '' : 'outline'} flex items-center gap-2`} 
+                    onClick={() => setPreviewWidth('web')}
+                    title="Switch to Desktop / Web browser viewport"
+                    data-tooltip="Desktop viewport (800px)"
+                  >
+                    <FaDesktop /> Web
+                  </button>
+                  <button 
+                    className={`secondary ${previewWidth === 'mobile' ? '' : 'outline'} flex items-center gap-2`} 
+                    onClick={() => setPreviewWidth('mobile')}
+                    title="Switch to Mobile smartphone viewport"
+                    data-tooltip="Mobile viewport (400px)"
+                  >
+                    <FaMobileAlt /> Mobile
+                  </button>
+                  <button 
+                    className="icon-btn" 
+                    onClick={() => setShowPreview(false)}
+                    title="Close preview modal"
+                    data-tooltip="Close preview"
+                  >
+                    X
+                  </button>
                 </div>
               </div>
               <div style={{ flex: 1, overflowY: 'auto', backgroundColor: '#fff', padding: '32px 24px', borderRadius: 8 }}>
                 <FormRenderer 
                   schema={{ fields, allowRoles }} 
                   roles={systemRoles} 
-                  onSubmit={(data) => alert('Form submitted in preview! Data:\n' + JSON.stringify(data, null, 2))} 
+                  onSubmit={(data) => {
+                    showToast('Form submitted successfully in preview mode!', 'info');
+                    alert('Form submitted in preview! Data:\n' + JSON.stringify(data, null, 2));
+                  }} 
                 />
               </div>
             </div>
@@ -511,10 +692,35 @@ export default function RegistrationBuilder() {
   }
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
+      {toast && (
+        <div className={`toast-banner ${toast.type}`}>
+          {toast.type === 'success' && <FaCheckCircle size={16} />}
+          {toast.type === 'danger' && <FaTimesCircle size={16} />}
+          {toast.type === 'info' && <FaInfoCircle size={16} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <h2>Registration Builder</h2>
-        <button className="primary flex items-center gap-2" onClick={createForm}><FaPlus /> Create Form</button>
+        <button 
+          className="primary flex items-center gap-2" 
+          disabled={isCreatingForm}
+          onClick={createForm}
+          title="Create a new registration form template"
+          data-tooltip="Create new form template"
+        >
+          {isCreatingForm ? (
+            <>
+              <FaSpinner className="spin" /> Creating Form...
+            </>
+          ) : (
+            <>
+              <FaPlus /> Create Form
+            </>
+          )}
+        </button>
       </div>
       
       <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
@@ -528,12 +734,30 @@ export default function RegistrationBuilder() {
             <p className="text-muted text-sm mb-4">Created: {new Date(form.createdAt).toLocaleDateString()}</p>
             
             <div className="flex gap-2">
-              <button className="primary outline" style={{ flex: 1 }} onClick={() => openForm(form)}>
+              <button 
+                className="primary outline" 
+                style={{ flex: 1 }} 
+                onClick={() => openForm(form)}
+                title={`Open and edit ${form.name}`}
+                data-tooltip="Open form editor"
+              >
                 Edit Form
               </button>
               {form.status !== 'LIVE' && (
-                <button className="danger outline" onClick={() => deleteForm(form.id)}>
-                  Delete
+                <button 
+                  className="danger outline" 
+                  disabled={deletingFormId === form.id}
+                  onClick={() => deleteForm(form.id)}
+                  title={`Delete ${form.name}`}
+                  data-tooltip="Delete form draft"
+                >
+                  {deletingFormId === form.id ? (
+                    <>
+                      <FaSpinner className="spin" /> Deleting...
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
                 </button>
               )}
             </div>

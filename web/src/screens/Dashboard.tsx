@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { 
   FaBell, FaBars, FaTimes, FaUser, FaUserCircle, 
   FaUserPlus, FaNetworkWired, FaMicrochip, FaCheckCircle, 
-  FaLock, FaSearchPlus, FaChevronDown, FaChevronUp, FaSyncAlt 
+  FaLock, FaSearchPlus, FaChevronDown, FaChevronUp, FaSyncAlt,
+  FaSpinner, FaCheck, FaTimesCircle, FaInfoCircle 
 } from 'react-icons/fa';
 import type { User, NotificationItem } from '../types';
 import Roles from './Roles';
@@ -62,11 +63,16 @@ export default function Dashboard({ user, onLogout }: Props) {
 
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [confirmModal, setConfirmModal] = useState<{ id: number, action: string, name: string } | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<{ id: number; action: string } | null>(null);
+  const [actionCompleted, setActionCompleted] = useState<{ id: number; action: string } | null>(null);
+  const [isRefreshingUsers, setIsRefreshingUsers] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'danger' | 'info' } | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+  const showToast = (message: string, type: 'success' | 'danger' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => prev?.message === message ? null : prev);
+    }, 3200);
   };
 
   const fetchRoles = async () => {
@@ -296,13 +302,14 @@ export default function Dashboard({ user, onLogout }: Props) {
     return { fullName: fullName || 'Unknown User', formattedData };
   };
 
-  const handleAction = async (id: number, action: string, body = {}, isRequest = false) => {
+  const handleAction = async (id: number, action: string, body = {}, isRequest = false, userName?: string) => {
+    setActionLoading({ id, action });
     try {
       const endpoint = isRequest 
         ? `${API_URL}/api/v1/users/request/${id}/${action}`
         : `${API_URL}/api/v1/users/${id}/${action}`;
       
-      await fetch(endpoint, {
+      const res = await fetch(endpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -310,10 +317,46 @@ export default function Dashboard({ user, onLogout }: Props) {
         },
         body: JSON.stringify(body)
       });
-      fetchUsers();
-      showToast('Action completed successfully!');
+      
+      if (res.ok) {
+        setActionLoading(null);
+        setActionCompleted({ id, action });
+        
+        const actionLabel = action === 'approve' 
+          ? 'approved' 
+          : action === 'reject' 
+          ? 'rejected' 
+          : action === 'deactivate' 
+          ? 'deactivated' 
+          : 'reactivated';
+        
+        const targetName = userName ? `"${userName}"` : 'User';
+        showToast(`${targetName} has been ${actionLabel} successfully!`, action === 'reject' ? 'info' : 'success');
+        
+        setTimeout(() => {
+          fetchUsers();
+          fetchNotifications();
+          setActionCompleted(null);
+        }, 1200);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setActionLoading(null);
+        showToast(err.error || `Failed to ${action} user`, 'danger');
+      }
     } catch (err) {
       console.error(err);
+      setActionLoading(null);
+      showToast(`Network error while trying to ${action} user`, 'danger');
+    }
+  };
+
+  const handleRefreshUsers = async () => {
+    setIsRefreshingUsers(true);
+    try {
+      await Promise.all([fetchUsers(), fetchNotifications()]);
+      showToast('User list and pending requests refreshed', 'info');
+    } finally {
+      setIsRefreshingUsers(false);
     }
   };
 
@@ -329,16 +372,12 @@ export default function Dashboard({ user, onLogout }: Props) {
 
   return (
     <div className="app-container">
-      {toastMessage && (
-        <div style={{ 
-          position: 'fixed', top: 20, right: 20, 
-          backgroundColor: 'var(--success)', color: 'white', 
-          padding: '12px 24px', borderRadius: 8, 
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)', 
-          zIndex: 9999, fontWeight: 'bold',
-          transition: 'all 0.3s ease-in-out'
-        }}>
-          {toastMessage}
+      {toast && (
+        <div className={`toast-banner ${toast.type}`}>
+          {toast.type === 'success' && <FaCheckCircle size={16} />}
+          {toast.type === 'danger' && <FaTimesCircle size={16} />}
+          {toast.type === 'info' && <FaInfoCircle size={16} />}
+          <span>{toast.message}</span>
         </div>
       )}
       <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', borderBottom: '1px solid var(--border)', padding: '0.75rem 1.5rem' }}>
@@ -675,23 +714,29 @@ export default function Dashboard({ user, onLogout }: Props) {
                   <button 
                     className={activeTab === 'existing' ? 'primary' : 'outline'} 
                     onClick={() => setActiveTab('existing')}
+                    title="View registered active and deactivated users"
+                    data-tooltip="View registered users"
                   >
                     Existing Users
                   </button>
                   <button 
                     className={activeTab === 'pending' ? 'primary' : 'outline'} 
                     onClick={() => setActiveTab('pending')}
+                    title="View user registrations awaiting approval"
+                    data-tooltip="View pending requests"
                   >
                     Pending Approval ({pendingRequests.length})
                   </button>
                 </div>
                 <button 
-                  className="outline" 
-                  style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                  onClick={fetchUsers}
+                  className="outline flex items-center gap-2" 
+                  disabled={isRefreshingUsers}
+                  onClick={handleRefreshUsers}
+                  title="Reload users and pending registration requests"
+                  data-tooltip="Refresh users & requests"
                 >
-                  <FaSyncAlt size={13} />
-                  Refresh
+                  <FaSyncAlt size={13} className={isRefreshingUsers ? 'spin' : ''} />
+                  {isRefreshingUsers ? 'Refreshing...' : 'Refresh'}
                 </button>
               </div>
 
@@ -708,6 +753,12 @@ export default function Dashboard({ user, onLogout }: Props) {
                       if (isImgUrl(v)) imgEntries.push([k, v]);
                       else textEntries.push([k, v]);
                     }
+
+                    const isApproving = actionLoading?.id === req.id && actionLoading?.action === 'approve';
+                    const isRejecting = actionLoading?.id === req.id && actionLoading?.action === 'reject';
+                    const isApproved = actionCompleted?.id === req.id && actionCompleted?.action === 'approve';
+                    const isRejected = actionCompleted?.id === req.id && actionCompleted?.action === 'reject';
+                    const isRequestBusy = isApproving || isRejecting || isApproved || isRejected;
 
                     return (
                       <div key={req.id} className="card" style={{ padding: 18 }}>
@@ -756,6 +807,8 @@ export default function Dashboard({ user, onLogout }: Props) {
                               id={`role-${req.id}`} 
                               defaultValue={req.requestedRoleId} 
                               style={{ marginBottom: '0.5rem' }}
+                              title="Select role to assign upon approval"
+                              disabled={isRequestBusy}
                             >
                               {roles.map(r => (
                                 <option key={r.id} value={r.id}>{r.name}</option>
@@ -763,24 +816,58 @@ export default function Dashboard({ user, onLogout }: Props) {
                             </select>
                             <div className="flex gap-2">
                               <button 
-                                className="success" 
+                                className={`success flex items-center justify-center gap-2 ${isApproved ? 'btn-success-state' : ''}`} 
                                 style={{ backgroundColor: 'var(--success)', color: 'white', flex: 1 }}
+                                disabled={isRequestBusy}
+                                title={isApproving ? `Approving registration for ${fullName}...` : `Approve registration for ${fullName} and assign role`}
+                                data-tooltip={isApproving ? "Approving registration..." : "Approve and assign role"}
+                                data-tooltip-pos="bottom"
                                 onClick={() => {
                                   const select = document.getElementById(`role-${req.id}`) as HTMLSelectElement;
-                                  handleAction(req.id, 'approve', { roleId: Number(select.value) }, true);
+                                  handleAction(req.id, 'approve', { roleId: Number(select?.value) }, true, fullName);
                                 }}
                               >
-                                Approve
+                                {isApproving ? (
+                                  <>
+                                    <FaSpinner className="spin" /> Approving...
+                                  </>
+                                ) : isApproved ? (
+                                  <>
+                                    <FaCheck /> Approved!
+                                  </>
+                                ) : (
+                                  <>
+                                    <FaCheckCircle /> Approve
+                                  </>
+                                )}
                               </button>
                               <button 
-                                className="danger"
+                                className={`danger flex items-center justify-center gap-2 ${isRejected ? 'btn-danger-state' : ''}`}
                                 style={{ flex: 1 }}
+                                disabled={isRequestBusy}
+                                title={isRejecting ? `Rejecting registration for ${fullName}...` : `Reject registration request for ${fullName}`}
+                                data-tooltip={isRejecting ? "Rejecting registration..." : "Reject request"}
+                                data-tooltip-pos="bottom"
                                 onClick={() => {
-                                  const reason = prompt('Rejection reason (optional):');
-                                  handleAction(req.id, 'reject', { reason }, true);
+                                  const reason = prompt(`Rejection reason for ${fullName} (optional):`);
+                                  if (reason !== null) {
+                                    handleAction(req.id, 'reject', { reason }, true, fullName);
+                                  }
                                 }}
                               >
-                                Reject
+                                {isRejecting ? (
+                                  <>
+                                    <FaSpinner className="spin" /> Rejecting...
+                                  </>
+                                ) : isRejected ? (
+                                  <>
+                                    <FaTimes /> Rejected!
+                                  </>
+                                ) : (
+                                  <>
+                                    <FaTimesCircle /> Reject
+                                  </>
+                                )}
                               </button>
                             </div>
                           </div>
@@ -826,9 +913,25 @@ export default function Dashboard({ user, onLogout }: Props) {
                                 <div className="flex items-center gap-4">
                                   <span className={`badge ${u.status.toLowerCase()}`}>{u.status}</span>
                                   {u.status === 'DEACTIVATED' ? (
-                                    <button className="primary" onClick={() => setConfirmModal({ id: u.id, action: 'reactivate', name: u.fullName })}>Reactivate</button>
+                                    <button 
+                                      className="primary" 
+                                      onClick={() => setConfirmModal({ id: u.id, action: 'reactivate', name: u.fullName })}
+                                      title={`Reactivate account for ${u.fullName}`}
+                                      data-tooltip="Reactivate account"
+                                      data-tooltip-pos="left"
+                                    >
+                                      Reactivate
+                                    </button>
                                   ) : (
-                                    <button className="danger outline" onClick={() => setConfirmModal({ id: u.id, action: 'deactivate', name: u.fullName })}>Deactivate</button>
+                                    <button 
+                                      className="danger outline" 
+                                      onClick={() => setConfirmModal({ id: u.id, action: 'deactivate', name: u.fullName })}
+                                      title={`Deactivate account for ${u.fullName}`}
+                                      data-tooltip="Deactivate account"
+                                      data-tooltip-pos="left"
+                                    >
+                                      Deactivate
+                                    </button>
                                   )}
                                 </div>
                               </div>
@@ -1101,16 +1204,34 @@ export default function Dashboard({ user, onLogout }: Props) {
               {confirmModal.action === 'deactivate' && ' They will no longer be able to log in.'}
             </p>
             <div className="flex gap-4" style={{ marginTop: '2rem', justifyContent: 'flex-end' }}>
-              <button className="outline" onClick={() => setConfirmModal(null)}>Cancel</button>
               <button 
-                className={confirmModal.action === 'deactivate' ? 'danger' : 'primary'}
+                className="outline" 
+                disabled={actionLoading?.id === confirmModal.id} 
+                onClick={() => setConfirmModal(null)}
+                title="Cancel and close dialog"
+                data-tooltip="Cancel"
+              >
+                Cancel
+              </button>
+              <button 
+                className={`flex items-center gap-2 ${confirmModal.action === 'deactivate' ? 'danger' : 'primary'}`}
                 style={confirmModal.action === 'reactivate' ? { backgroundColor: 'var(--success)', color: 'white' } : {}}
-                onClick={() => {
-                  handleAction(confirmModal.id, confirmModal.action);
+                disabled={actionLoading?.id === confirmModal.id}
+                title={`Confirm ${confirmModal.action} user ${confirmModal.name}`}
+                data-tooltip={`Confirm ${confirmModal.action}`}
+                onClick={async () => {
+                  const { id, action, name } = confirmModal;
+                  await handleAction(id, action, {}, false, name);
                   setConfirmModal(null);
                 }}
               >
-                Confirm
+                {actionLoading?.id === confirmModal.id ? (
+                  <>
+                    <FaSpinner className="spin" /> {confirmModal.action === 'deactivate' ? 'Deactivating...' : 'Reactivating...'}
+                  </>
+                ) : (
+                  'Confirm'
+                )}
               </button>
             </div>
           </div>

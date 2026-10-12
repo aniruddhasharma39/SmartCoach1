@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FaPlus, FaSpinner } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
 
@@ -11,6 +12,8 @@ export default function Roles({}: Props) {
   const [modules, setModules] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editingRole, setEditingRole] = useState<any>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingRoleId, setDeletingRoleId] = useState<number | null>(null);
   
   const [formData, setFormData] = useState({ name: '', moduleIds: [] as number[] });
 
@@ -36,6 +39,7 @@ export default function Roles({}: Props) {
     const url = editingRole ? `${API_URL}/api/v1/roles/${editingRole.id}` : `${API_URL}/api/v1/roles`;
     const method = editingRole ? 'PUT' : 'POST';
     
+    setIsSaving(true);
     try {
       const res = await fetch(url, {
         method,
@@ -54,11 +58,14 @@ export default function Roles({}: Props) {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleDelete = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this role?')) return;
+    setDeletingRoleId(id);
     try {
       const res = await fetch(`${API_URL}/api/v1/roles/${id}`, {
         method: 'DELETE',
@@ -72,6 +79,8 @@ export default function Roles({}: Props) {
       }
     } catch (err) {
       console.error(err);
+    } finally {
+      setDeletingRoleId(null);
     }
   };
 
@@ -100,7 +109,14 @@ export default function Roles({}: Props) {
     <div>
       <div className="flex justify-between items-center mb-4">
         <h2>Manage Roles</h2>
-        <button className="primary" onClick={openCreateModal}>Create Role</button>
+        <button 
+          className="primary flex items-center gap-2" 
+          onClick={openCreateModal}
+          title="Create a new system role"
+          data-tooltip="Create new role"
+        >
+          <FaPlus /> Create Role
+        </button>
       </div>
 
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
@@ -114,8 +130,29 @@ export default function Roles({}: Props) {
             </div>
             {r.name !== 'Developer' && (
               <div className="flex gap-2">
-                <button className="outline" onClick={() => openEditModal(r)}>Edit</button>
-                <button className="danger outline" onClick={() => handleDelete(r.id)}>Delete</button>
+                <button 
+                  className="outline" 
+                  onClick={() => openEditModal(r)}
+                  title={`Edit permissions for role ${r.name}`}
+                  data-tooltip="Edit role"
+                >
+                  Edit
+                </button>
+                <button 
+                  className="danger outline flex items-center gap-2" 
+                  disabled={deletingRoleId === r.id}
+                  onClick={() => handleDelete(r.id)}
+                  title={`Delete role ${r.name}`}
+                  data-tooltip="Delete role"
+                >
+                  {deletingRoleId === r.id ? (
+                    <>
+                      <FaSpinner className="spin" /> Deleting...
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
+                </button>
               </div>
             )}
           </div>
@@ -152,8 +189,31 @@ export default function Roles({}: Props) {
                 </div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                <button type="button" className="outline" onClick={() => setShowModal(false)}>Cancel</button>
-                <button type="submit" className="primary">Save Role</button>
+                <button 
+                  type="button" 
+                  className="outline" 
+                  disabled={isSaving}
+                  onClick={() => setShowModal(false)}
+                  title="Discard changes and close"
+                  data-tooltip="Cancel"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="primary flex items-center gap-2"
+                  disabled={isSaving}
+                  title="Save role details"
+                  data-tooltip="Save role"
+                >
+                  {isSaving ? (
+                    <>
+                      <FaSpinner className="spin" /> Saving...
+                    </>
+                  ) : (
+                    'Save Role'
+                  )}
+                </button>
               </div>
             </form>
           </div>

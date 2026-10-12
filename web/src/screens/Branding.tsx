@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FaSpinner } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
 
@@ -87,8 +88,20 @@ export default function Branding({}: Props) {
         </div>
 
         <div className="mt-4">
-          <button type="submit" className="primary" disabled={loading}>
-            {loading ? 'Saving...' : 'Save Branding'}
+          <button 
+            type="submit" 
+            className="primary flex items-center gap-2" 
+            disabled={loading}
+            title="Save application branding settings"
+            data-tooltip="Save branding settings"
+          >
+            {loading ? (
+              <>
+                <FaSpinner className="spin" /> Saving Settings...
+              </>
+            ) : (
+              'Save Branding'
+            )}
           </button>
         </div>
       </form>
