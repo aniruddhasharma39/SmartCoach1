@@ -24,7 +24,8 @@ import {
   FaTrain,
   FaCog,
   FaMapMarkerAlt,
-  FaDatabase
+  FaDatabase,
+  FaSpinner
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
@@ -151,7 +152,14 @@ export default function Roles({}: Props) {
 
   // Modal states
   const [showModal, setShowModal] = useState(false);
+<<<<<<< HEAD
   const [editingRole, setEditingRole] = useState<RoleItem | null>(null);
+=======
+  const [editingRole, setEditingRole] = useState<any>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deletingRoleId, setDeletingRoleId] = useState<number | null>(null);
+  
+>>>>>>> origin/main
   const [formData, setFormData] = useState({ name: '', moduleIds: [] as number[] });
   const [isSaving, setIsSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -256,7 +264,12 @@ export default function Roles({}: Props) {
       ? `${API_URL}/api/v1/roles/${editingRole.id}`
       : `${API_URL}/api/v1/roles`;
     const method = editingRole ? 'PUT' : 'POST';
+<<<<<<< HEAD
 
+=======
+    
+    setIsSaving(true);
+>>>>>>> origin/main
     try {
       const res = await fetch(url, {
         method,
@@ -277,16 +290,27 @@ export default function Roles({}: Props) {
         const errorData = await res.json().catch(() => ({}));
         setModalError(errorData.error || errorData.message || 'Failed to save role');
       }
+<<<<<<< HEAD
     } catch (err: any) {
       setModalError(err.message || 'Network error while saving role');
+=======
+    } catch (err) {
+      console.error(err);
+>>>>>>> origin/main
     } finally {
       setIsSaving(false);
     }
   };
 
+<<<<<<< HEAD
   const confirmDelete = async () => {
     if (!deletingRole) return;
     setIsDeleting(true);
+=======
+  const handleDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this role?')) return;
+    setDeletingRoleId(id);
+>>>>>>> origin/main
     try {
       const res = await fetch(`${API_URL}/api/v1/roles/${deletingRole.id}`, {
         method: 'DELETE',
@@ -301,13 +325,19 @@ export default function Roles({}: Props) {
       }
     } catch (err) {
       console.error(err);
+<<<<<<< HEAD
       alert('Error occurred while deleting role');
     } finally {
       setIsDeleting(false);
+=======
+    } finally {
+      setDeletingRoleId(null);
+>>>>>>> origin/main
     }
   };
 
   return (
+<<<<<<< HEAD
     <div className="roles-container">
       {/* Header bar */}
       <div className="roles-header">
@@ -326,6 +356,57 @@ export default function Roles({}: Props) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
+=======
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2>Manage Roles</h2>
+        <button 
+          className="primary flex items-center gap-2" 
+          onClick={openCreateModal}
+          title="Create a new system role"
+          data-tooltip="Create new role"
+        >
+          <FaPlus /> Create Role
+        </button>
+      </div>
+
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+        {roles.map(r => (
+          <div key={r.id} className="card">
+            <h3>{r.name}</h3>
+            <div className="mt-2 mb-4 text-sm text-muted">
+              {r.roleModules && r.roleModules.length > 0
+                ? r.roleModules.map((rm: any) => rm.module.name).join(', ')
+                : 'No modules access'}
+            </div>
+            {r.name !== 'Developer' && (
+              <div className="flex gap-2">
+                <button 
+                  className="outline" 
+                  onClick={() => openEditModal(r)}
+                  title={`Edit permissions for role ${r.name}`}
+                  data-tooltip="Edit role"
+                >
+                  Edit
+                </button>
+                <button 
+                  className="danger outline flex items-center gap-2" 
+                  disabled={deletingRoleId === r.id}
+                  onClick={() => handleDelete(r.id)}
+                  title={`Delete role ${r.name}`}
+                  data-tooltip="Delete role"
+                >
+                  {deletingRoleId === r.id ? (
+                    <>
+                      <FaSpinner className="spin" /> Deleting...
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
+                </button>
+              </div>
+            )}
+>>>>>>> origin/main
           </div>
 
           <button className="btn-create-role" onClick={openCreateModal}>
@@ -416,6 +497,7 @@ export default function Roles({}: Props) {
                   )}
                 </div>
               </div>
+<<<<<<< HEAD
             );
           })}
 
@@ -607,9 +689,18 @@ export default function Roles({}: Props) {
                     type="submit"
                     className="btn-save-modal"
                     disabled={isSaving}
+                    title="Save role details"
+                    data-tooltip="Save role"
                   >
-                    <FaCheck />
-                    {isSaving ? 'Saving...' : 'Save Role'}
+                    {isSaving ? (
+                      <>
+                        <FaSpinner className="spin" style={{ marginRight: '0.35rem' }} /> Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaCheck style={{ marginRight: '0.35rem' }} /> Save Role
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

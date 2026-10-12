@@ -10,7 +10,8 @@ import {
   FaCheckCircle, 
   FaExclamationTriangle,
   FaMagic,
-  FaFileImage
+  FaFileImage,
+  FaSpinner
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
@@ -163,6 +164,7 @@ export default function Branding({}: Props) {
             </div>
           )}
 
+<<<<<<< HEAD
           {errorMessage && (
             <div
               style={{
@@ -322,14 +324,22 @@ export default function Branding({}: Props) {
                   type="submit"
                   className="btn-save-branding"
                   disabled={loading}
+                  title="Save application branding settings"
+                  data-tooltip="Save branding settings"
                 >
-                  <FaCheck />
-                  {loading ? 'Saving Changes...' : 'Save Branding'}
+                  {loading ? (
+                    <>
+                      <FaSpinner className="spin" style={{ marginRight: '0.35rem' }} /> Saving Changes...
+                    </>
+                  ) : (
+                    <>
+                      <FaCheck style={{ marginRight: '0.35rem' }} /> Save Branding
+                    </>
+                  )}
                 </button>
               </div>
             </div>
           </form>
-        </div>
       </div>
     </div>
   );
