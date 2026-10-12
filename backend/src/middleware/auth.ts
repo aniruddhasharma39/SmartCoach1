@@ -17,10 +17,15 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     return res.status(401).json({ error: 'Authentication required' });
   }
 
+  let decoded: { userId: number };
   try {
     const secret = process.env.JWT_SECRET || 'super-secret-jwt-key';
-    const decoded = jwt.verify(token, secret) as { userId: number };
-    
+    decoded = jwt.verify(token, secret) as { userId: number };
+  } catch (error) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+
+  try {
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       include: { 
@@ -49,7 +54,8 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
     };
     next();
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+    console.error('Database connection or query error in authenticate middleware:', error);
+    return res.status(503).json({ error: 'Authentication service temporarily unavailable, please retry' });
   }
 };
 

@@ -26,7 +26,11 @@ const getBrandingHandler = async (req: any, res: any, next: any) => {
       wallpaperUrl: wallpaper?.value || null
     });
   } catch (error) {
-    next(error);
+    console.warn('Database momentarily unreachable for branding, returning default configuration:', error);
+    res.json({
+      appName: 'LC Platform',
+      wallpaperUrl: null
+    });
   }
 };
 

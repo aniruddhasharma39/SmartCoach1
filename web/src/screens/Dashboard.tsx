@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { 
   FaBell, FaBars, FaTimes, FaUser, FaUserCircle, 
   FaUserPlus, FaNetworkWired, FaMicrochip, FaCheckCircle, 
-  FaLock, FaSearchPlus, FaChevronDown, FaChevronUp, FaSyncAlt 
+  FaLock, FaSearchPlus, FaChevronDown, FaChevronUp, FaSyncAlt,
+  FaHome, FaLayerGroup, FaUsers, FaShieldAlt, FaPaintBrush, 
+  FaFileAlt, FaChartBar, FaHistory, FaVideo, FaTrain, FaCog, 
+  FaMapMarkerAlt, FaDatabase
 } from 'react-icons/fa';
 import type { User, NotificationItem } from '../types';
 import Roles from './Roles';
@@ -23,6 +26,23 @@ const DEFAULT_SYSTEM_MODULES = [
   { name: 'Branding', slug: 'branding' },
   { name: 'Cluster', slug: 'cluster' },
 ];
+
+const getSidebarModuleIcon = (name: string, slug?: string) => {
+  const key = (slug || name).toLowerCase();
+  if (key.includes('cluster') || key.includes('gate') || key.includes('device') || key.includes('barrier')) return FaMicrochip;
+  if (key.includes('user') || key.includes('member') || key.includes('staff')) return FaUsers;
+  if (key.includes('role') || key.includes('permission') || key.includes('access')) return FaShieldAlt;
+  if (key.includes('brand') || key.includes('theme') || key.includes('logo')) return FaPaintBrush;
+  if (key.includes('regis') || key.includes('form') || key.includes('builder')) return FaFileAlt;
+  if (key.includes('chart') || key.includes('report') || key.includes('analytic')) return FaChartBar;
+  if (key.includes('log') || key.includes('audit') || key.includes('history')) return FaHistory;
+  if (key.includes('cctv') || key.includes('camera') || key.includes('video')) return FaVideo;
+  if (key.includes('train') || key.includes('rail') || key.includes('track')) return FaTrain;
+  if (key.includes('setting') || key.includes('config')) return FaCog;
+  if (key.includes('map') || key.includes('location') || key.includes('gps')) return FaMapMarkerAlt;
+  if (key.includes('data') || key.includes('database')) return FaDatabase;
+  return FaLayerGroup;
+};
 
 export default function Dashboard({ user, onLogout }: Props) {
   const [users, setUsers] = useState<any[]>([]);
@@ -635,22 +655,33 @@ export default function Dashboard({ user, onLogout }: Props) {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <div className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`} style={{ height: '100%', overflowY: 'auto' }}>
         <nav className="sidebar-nav">
-          <a href="#" className={`nav-item ${currentView === 'home' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setCurrentView('home'); setIsMobileMenuOpen(false); }}>Home</a>
+          <a 
+            href="#" 
+            className={`nav-item ${currentView === 'home' ? 'active' : ''}`} 
+            onClick={(e) => { e.preventDefault(); setCurrentView('home'); setIsMobileMenuOpen(false); }}
+          >
+            <FaHome style={{ fontSize: '1rem', flexShrink: 0 }} />
+            <span>Home</span>
+          </a>
           
           {(() => {
             const isDev = user.role === 'Developer';
             const modulesToShow = (systemModules.length > 0 ? systemModules : DEFAULT_SYSTEM_MODULES)
               .filter(m => isDev || (user.allowedModules && user.allowedModules.includes(m.slug)));
-            return modulesToShow.map(mod => (
-              <a 
-                key={mod.slug} 
-                href="#" 
-                className={`nav-item ${currentView === mod.slug ? 'active' : ''}`} 
-                onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); setIsMobileMenuOpen(false); }}
-              >
-                {mod.name}
-              </a>
-            ));
+            return modulesToShow.map(mod => {
+              const IconComp = getSidebarModuleIcon(mod.name, mod.slug);
+              return (
+                <a 
+                  key={mod.slug} 
+                  href="#" 
+                  className={`nav-item ${currentView === mod.slug ? 'active' : ''}`} 
+                  onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); setIsMobileMenuOpen(false); }}
+                >
+                  <IconComp style={{ fontSize: '1rem', flexShrink: 0 }} />
+                  <span>{mod.name}</span>
+                </a>
+              );
+            });
           })()}
         </nav>
       </div>
@@ -901,6 +932,29 @@ export default function Dashboard({ user, onLogout }: Props) {
               <p className="text-muted" style={{ fontSize: '1.2rem' }}>You are logged in as <strong>{user.role}</strong>.</p>
             </div>
           )}
+
+          {!['roles', 'registration', 'branding', 'cluster', 'manage-users', 'home'].includes(currentView) && (() => {
+            const currentMod = systemModules.find(m => m.slug === currentView);
+            const FallbackIcon = getSidebarModuleIcon(currentMod?.name || '', currentView);
+            return (
+              <div className="card text-center" style={{ padding: 48, marginTop: 32, maxWidth: 620, margin: '32px auto 0' }}>
+                <div style={{ 
+                  width: 64, height: 64, borderRadius: 16, 
+                  background: 'linear-gradient(135deg, rgba(11, 60, 122, 0.1) 0%, rgba(14, 154, 167, 0.15) 100%)',
+                  color: 'var(--primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '1.8rem', marginBottom: 16
+                }}>
+                  <FallbackIcon />
+                </div>
+                <h3 style={{ fontSize: '1.4rem', color: 'var(--text-main)', marginBottom: 8, fontWeight: 700 }}>
+                  {currentMod?.name || 'Custom Module'}
+                </h3>
+                <p className="text-muted" style={{ fontSize: '0.95rem', lineHeight: 1.5, marginBottom: 0, maxWidth: 460, margin: '0 auto' }}>
+                  This module is enabled for your role. The dedicated feature interface is currently connected and ready for component deployment.
+                </p>
+              </div>
+            );
+          })()}
         </main>
       </div>
 
