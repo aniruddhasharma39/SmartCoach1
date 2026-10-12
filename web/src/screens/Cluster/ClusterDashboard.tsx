@@ -1,4 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  FaArchway, FaMapMarkerAlt, FaCogs, FaCamera, FaSun, 
+  FaBolt, FaPlug, FaCheckCircle, FaSearchPlus, FaTimes, FaRedo, FaTrash 
+} from 'react-icons/fa';
 import type { User } from '../../types';
 import './ClusterDashboard.css';
 import { API_URL } from '../../config';
@@ -203,7 +207,9 @@ export default function ClusterDashboard(_props: Props) {
             <div className="spinner-container"><div className="spinner"></div></div>
           ) : gates.length === 0 ? (
             <div className="empty-state glass-card">
-              <div className="empty-icon">🏗️</div>
+              <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                <FaArchway size={48} color="#64748b" />
+              </div>
               <h3>No Gates Found</h3>
               <p>Get started by creating your first Level Crossing Gate.</p>
             </div>
@@ -392,7 +398,7 @@ function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
     <div className="glass-card max-w-lg mx-auto slide-up">
       <div className="flex justify-between items-center mb-6">
         <h3 className="title-gradient m-0">Create New LC Gate</h3>
-        <button className="btn-icon" onClick={onCancel}>✕</button>
+        <button className="btn-icon" onClick={onCancel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaTimes size={16} /></button>
       </div>
       
       <form onSubmit={handleSubmit} className="flex-col gap-4">
@@ -440,7 +446,7 @@ function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
           <div className="flex justify-between items-center mb-2">
             <label className="m-0">GPS Coordinates</label>
             <button className="btn-small btn-primary flex items-center gap-1" onClick={handleGetLocation} disabled={gettingLocation}>
-              {gettingLocation ? 'Locating...' : '📍 Auto-fill GPS'}
+              {gettingLocation ? 'Locating...' : <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><FaMapMarkerAlt /> Auto-fill GPS</span>}
             </button>
           </div>
           <div className="flex gap-4">
@@ -540,7 +546,9 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', width: '100%' }}>
             {gate.masters?.length === 0 ? (
               <div className="empty-state-dashed col-span-full">
-                <div className="empty-icon text-4xl mb-3">⚙️</div>
+                <div className="empty-icon text-4xl mb-3" style={{ display: 'flex', justifyContent: 'center' }}>
+                  <FaCogs size={48} color="#64748b" />
+                </div>
                 <h4 className="text-lg font-bold mb-1">No Master Units</h4>
                 <p className="text-muted m-0">Click "Add Master" to configure the ESP for this LC Gate.</p>
               </div>
@@ -557,7 +565,7 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
                         style={{ padding: '8px 12px', fontSize: '0.85rem', cursor: 'pointer' }}
                         onClick={() => setUploadingEvidenceFor(master)}
                       >
-                        <span style={{ fontSize: '1rem' }}>📷</span> Upload Evidence
+                        <FaCamera style={{ fontSize: '0.95rem' }} /> Upload Evidence
                       </button>
                       <button 
                         className="transition flex items-center justify-center rounded-md hover-lift" 
@@ -574,7 +582,13 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
                   
                   <div className="mb-6 text-sm flex items-center gap-2" style={{ color: 'var(--text-main)', fontSize: '0.95rem' }}>
                     <span style={{ color: 'var(--text-muted)' }}>Power Source:</span> 
-                    <span style={{ fontWeight: 600 }}>{master.powerSource === 'SOLAR' ? '☀️ Solar Power' : '🔌 Direct Current'}</span>
+                    <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {master.powerSource === 'SOLAR' ? (
+                        <><FaSun style={{ color: '#f59e0b' }} /> Solar Power</>
+                      ) : (
+                        <><FaBolt style={{ color: '#3b82f6' }} /> Direct Current</>
+                      )}
+                    </span>
                   </div>
                   
                   <div className="child-devices-panel p-4 rounded-xl" style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}>
@@ -590,8 +604,8 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
                           <li key={dev.id} className="device-item p-4 rounded-xl transition hover-lift" style={{ backgroundColor: 'var(--background)', border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                             <div className="flex justify-between items-start gap-4">
                               <div className="flex items-center gap-3">
-                                <div style={{ backgroundColor: 'rgba(11, 60, 122, 0.08)', padding: '8px', borderRadius: '8px', display: 'flex' }}>
-                                  <span className="text-xl" role="img" aria-label="plugin">🔌</span>
+                                <div style={{ backgroundColor: 'rgba(11, 60, 122, 0.08)', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <FaPlug style={{ color: '#0284c7', fontSize: '1.1rem' }} />
                                 </div>
                                 <strong style={{ fontSize: '1.05rem', color: 'var(--text-main)', whiteSpace: 'nowrap' }}>{dev.serialNumber}</strong>
                               </div>
@@ -720,7 +734,7 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
     <div className="glass-card max-w-lg mx-auto slide-up">
       <div className="flex justify-between items-center mb-6">
         <h3 className="m-0 title-gradient">Add Master Unit</h3>
-        <button className="btn-icon" onClick={onCancel}>✕</button>
+        <button className="btn-icon" onClick={onCancel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaTimes size={16} /></button>
       </div>
       <form onSubmit={handleSubmit} className="flex-col gap-4">
         <div className="form-group">
@@ -740,8 +754,8 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
         <div className="form-group">
           <label>Power Source *</label>
           <select className="glass-input" value={powerSource} onChange={e => setPowerSource(e.target.value)}>
-            <option value="SOLAR">☀️ Solar Power</option>
-            <option value="DIRECT">🔌 Direct Current Supply</option>
+            <option value="SOLAR">Solar Power</option>
+            <option value="DIRECT">Direct Current Supply</option>
           </select>
         </div>
         <button type="submit" className="btn-primary w-full mt-4 py-3" disabled={submitting}>
@@ -806,7 +820,7 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
     <div className="glass-card max-w-lg mx-auto slide-up">
       <div className="flex justify-between items-center mb-6">
         <h3 className="m-0 title-gradient">Add Slave Device</h3>
-        <button className="btn-icon" onClick={onCancel}>✕</button>
+        <button className="btn-icon" onClick={onCancel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FaTimes size={16} /></button>
       </div>
       <form onSubmit={handleSubmit} className="flex-col gap-4">
         <div className="form-group">
@@ -1005,7 +1019,7 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
     <div className={`evidence-item flex justify-between items-center p-4 rounded-xl transition-all ${evidence ? 'bg-green-900 bg-opacity-20 border border-green-500' : 'glass-panel'}`}>
       <div>
         <h4 className="m-0 text-lg flex items-center gap-2">
-          <span>📷</span>
+          {evidence ? <FaCheckCircle style={{ color: '#10b981' }} /> : <FaCamera style={{ color: '#64748b' }} />}
           {title}
         </h4>
         <p className="text-sm text-muted m-0 mt-1">{description}</p>
@@ -1027,10 +1041,10 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
               className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
               style={{ textDecoration: 'none' }}
             >
-              🔍 View
+              <FaSearchPlus /> View
             </a>
             <label className="btn-small btn-outline cursor-pointer flex items-center gap-1" style={{ cursor: 'pointer', fontSize: '0.75rem', padding: '4px 10px' }}>
-              ↻ Re-upload
+              <FaRedo size={11} /> Re-upload
               <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFileChange} />
             </label>
             <button 
@@ -1040,7 +1054,7 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
               disabled={deleting}
               title="Delete Photo"
             >
-              {deleting ? '…' : '🗑 Delete'}
+              {deleting ? '…' : <><FaTrash size={11} /> Delete</>}
             </button>
           </>
         ) : (

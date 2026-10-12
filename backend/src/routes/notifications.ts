@@ -55,6 +55,7 @@ router.get('/', async (req: AuthRequest, res, next) => {
       message: string;
       createdAt: string;
       isRead: boolean;
+      read: boolean;
       targetModule?: string;
     }> = [];
 
@@ -77,13 +78,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
           if (reqData.fullName) applicantName = reqData.fullName;
         } catch {}
 
+        const isRead = readSet.has(id);
         notifications.push({
           id,
           type: 'user_request',
           title: 'New User Request',
           message: `${applicantName} has submitted registration for approval.`,
           createdAt: reqItem.createdAt.toISOString(),
-          isRead: readSet.has(id),
+          isRead,
+          read: isRead,
           targetModule: 'manage-users'
         });
       }
@@ -100,13 +103,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
         const id = `cluster_${gate.id}`;
         if (dismissedSet.has(id)) continue;
 
+        const isRead = readSet.has(id);
         notifications.push({
           id,
           type: 'cluster_created',
           title: 'New Cluster Created',
           message: `Cluster LC #${gate.lcNumber} (${gate.locationName}) is live.`,
           createdAt: gate.createdAt.toISOString(),
-          isRead: readSet.has(id),
+          isRead,
+          read: isRead,
           targetModule: 'cluster'
         });
       }
@@ -122,13 +127,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
         const id = `master_${master.id}`;
         if (dismissedSet.has(id)) continue;
 
+        const isRead = readSet.has(id);
         notifications.push({
           id,
           type: 'device_registered',
           title: 'New Device Registered',
           message: `Master Unit #${master.serialNumber} registered at Gate #${master.gate?.lcNumber || 'N/A'}.`,
           createdAt: master.createdAt.toISOString(),
-          isRead: readSet.has(id),
+          isRead,
+          read: isRead,
           targetModule: 'cluster'
         });
       }
@@ -143,13 +150,15 @@ router.get('/', async (req: AuthRequest, res, next) => {
         const id = `child_${child.id}`;
         if (dismissedSet.has(id)) continue;
 
+        const isRead = readSet.has(id);
         notifications.push({
           id,
           type: 'device_registered',
           title: 'New Child Device',
           message: `${child.type} #${child.serialNumber} linked to Gate #${child.master?.gate?.lcNumber || 'N/A'}.`,
           createdAt: child.createdAt.toISOString(),
-          isRead: readSet.has(id),
+          isRead,
+          read: isRead,
           targetModule: 'cluster'
         });
       }
@@ -169,6 +178,36 @@ router.get('/', async (req: AuthRequest, res, next) => {
   }
 });
 
+// Helper to get all current active notification IDs for a user
+async function getAllActiveNotificationIds(user: any): Promise<string[]> {
+  const isDev = user.role === 'Developer';
+  const canManageUsers = isDev || user.allowedModules?.includes('manage-users');
+  const canAccessClusters = isDev || user.allowedModules?.includes('cluster');
+  const ids: string[] = [];
+
+  if (canManageUsers) {
+    const pendingRequests = await prisma.registrationRequest.findMany({
+      where: { status: 'PENDING' },
+      select: { id: true },
+      take: 50
+    });
+    for (const r of pendingRequests) ids.push(`req_${r.id}`);
+  }
+
+  if (canAccessClusters) {
+    const gates = await prisma.lCGate.findMany({ select: { id: true }, take: 30 });
+    for (const g of gates) ids.push(`cluster_${g.id}`);
+
+    const masters = await prisma.masterUnit.findMany({ select: { id: true }, take: 30 });
+    for (const m of masters) ids.push(`master_${m.id}`);
+
+    const children = await prisma.childDevice.findMany({ select: { id: true }, take: 30 });
+    for (const c of children) ids.push(`child_${c.id}`);
+  }
+
+  return ids;
+}
+
 // Mark all notifications as read
 router.post('/read-all', async (req: AuthRequest, res, next) => {
   try {
@@ -177,13 +216,34 @@ router.post('/read-all', async (req: AuthRequest, res, next) => {
     const state = await getUserNotificationState(user.id);
 
     const newReadSet = new Set(state.readIds);
-    if (Array.isArray(notificationIds)) {
+    if (Array.isArray(notificationIds) && notificationIds.length > 0) {
       notificationIds.forEach(id => newReadSet.add(id));
+    } else {
+      const allIds = await getAllActiveNotificationIds(user);
+      allIds.forEach(id => newReadSet.add(id));
     }
     state.readIds = Array.from(newReadSet);
 
     await saveUserNotificationState(user.id, state);
     res.json({ success: true, message: 'All notifications marked as read' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Clear (dismiss) all notifications
+router.post('/clear-all', async (req: AuthRequest, res, next) => {
+  try {
+    const user = req.user!;
+    const state = await getUserNotificationState(user.id);
+    const allIds = await getAllActiveNotificationIds(user);
+
+    const newDismissedSet = new Set(state.dismissedIds);
+    allIds.forEach(id => newDismissedSet.add(id));
+    state.dismissedIds = Array.from(newDismissedSet);
+
+    await saveUserNotificationState(user.id, state);
+    res.json({ success: true, message: 'All notifications cleared' });
   } catch (error) {
     next(error);
   }

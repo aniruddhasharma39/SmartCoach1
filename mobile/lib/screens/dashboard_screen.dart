@@ -85,6 +85,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (_) {}
   }
 
+  Future<void> _clearAllNotifications() async {
+    if (mounted) {
+      setState(() {
+        _notifications.clear();
+        _unreadNotifsCount = 0;
+      });
+    }
+    try {
+      final token = await _getToken();
+      await http.post(
+        Uri.parse('$baseUrl/notifications/clear-all'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+    } catch (_) {}
+  }
+
   Future<void> _markAllNotifsRead() async {
     try {
       final token = await _getToken();
@@ -96,6 +112,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {
           for (var n in _notifications) {
             n['read'] = true;
+            n['isRead'] = true;
           }
           _unreadNotifsCount = 0;
         });
@@ -113,8 +130,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       if (mounted) {
         setState(() {
           final item = _notifications.firstWhere((n) => n['id'].toString() == id, orElse: () => null);
-          if (item != null && item['read'] != true) {
+          if (item != null && (item['read'] != true && item['isRead'] != true)) {
             item['read'] = true;
+            item['isRead'] = true;
             if (_unreadNotifsCount > 0) _unreadNotifsCount--;
           }
         });
@@ -126,7 +144,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (mounted) {
       setState(() {
         final item = _notifications.firstWhere((n) => n['id'].toString() == id, orElse: () => null);
-        if (item != null && item['read'] != true && _unreadNotifsCount > 0) {
+        if (item != null && (item['read'] != true && item['isRead'] != true) && _unreadNotifsCount > 0) {
           _unreadNotifsCount--;
         }
         _notifications.removeWhere((n) => n['id'].toString() == id);
@@ -232,24 +250,43 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
                         const Spacer(),
-                        if (_notifications.any((n) => n['read'] != true))
+                        if (_notifications.isNotEmpty) ...[
+                          if (_notifications.any((n) => n['read'] != true && n['isRead'] != true))
+                            TextButton.icon(
+                              style: TextButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () async {
+                                await _markAllNotifsRead();
+                                setSheetState(() {});
+                              },
+                              icon: const Icon(Icons.done_all, size: 14, color: AppColors.primary),
+                              label: const Text(
+                                'Mark read',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
+                              ),
+                            ),
+                          const SizedBox(width: 4),
                           TextButton.icon(
                             style: TextButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
                             onPressed: () async {
-                              await _markAllNotifsRead();
+                              await _clearAllNotifications();
                               setSheetState(() {});
                             },
-                            icon: const Icon(Icons.done_all, size: 15, color: AppColors.primary),
-                            label: const Text(
-                              'Mark all read',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                            icon: Icon(Icons.delete_sweep_outlined, size: 15, color: Colors.red.shade600),
+                            label: Text(
+                              'Clear all',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.red.shade600),
                             ),
                           ),
-                        const SizedBox(width: 4),
+                          const SizedBox(width: 4),
+                        ],
                         IconButton(
                           icon: const Icon(Icons.close, size: 20, color: Colors.grey),
                           onPressed: () => Navigator.pop(sheetContext),
@@ -292,7 +329,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             separatorBuilder: (_, _) => const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final item = _notifications[index];
-                              final isRead = item['read'] == true;
+                              final isRead = item['read'] == true || item['isRead'] == true;
                               final notifType = item['type'] ?? 'info';
                               final itemId = item['id'].toString();
 
@@ -300,15 +337,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               Color iconColor = AppColors.primary;
                               Color iconBg = AppColors.primary.withOpacity(0.1);
 
-                              if (notifType == 'request') {
+                              if (notifType == 'user_request' || notifType == 'request') {
                                 typeIcon = Icons.person_add_alt_1_rounded;
                                 iconColor = Colors.orange.shade700;
                                 iconBg = Colors.orange.shade50;
-                              } else if (notifType == 'cluster') {
+                              } else if (notifType == 'cluster_created' || notifType == 'cluster') {
                                 typeIcon = Icons.device_hub_rounded;
                                 iconColor = Colors.blue.shade700;
                                 iconBg = Colors.blue.shade50;
-                              } else if (notifType == 'device') {
+                              } else if (notifType == 'device_registered' || notifType == 'device') {
                                 typeIcon = Icons.router_rounded;
                                 iconColor = Colors.teal.shade700;
                                 iconBg = Colors.teal.shade50;
@@ -358,9 +395,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       _markNotificationRead(itemId);
                                     }
                                     Navigator.pop(sheetContext);
-                                    if (item['link'] != null) {
+                                    if (item['targetModule'] != null || item['link'] != null) {
                                       setState(() {
-                                        _currentView = item['link'];
+                                        _currentView = item['targetModule'] ?? item['link'];
                                       });
                                     }
                                   },
@@ -368,10 +405,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   child: Container(
                                     padding: const EdgeInsets.all(12),
                                     decoration: BoxDecoration(
-                                      color: isRead ? Colors.white : const Color(0xFFF0FDF4).withOpacity(0.6),
+                                      color: isRead ? Colors.white : const Color(0xFFF0F7FF),
                                       borderRadius: BorderRadius.circular(10),
                                       border: Border.all(
-                                        color: isRead ? Colors.grey.shade200 : AppColors.primary.withOpacity(0.3),
+                                        color: isRead ? Colors.grey.shade200 : const Color(0xFF0284C7).withOpacity(0.5),
                                         width: isRead ? 1 : 1.5,
                                       ),
                                       boxShadow: [
@@ -409,7 +446,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                       height: 7,
                                                       margin: const EdgeInsets.only(right: 6),
                                                       decoration: const BoxDecoration(
-                                                        color: AppColors.primary,
+                                                        color: Color(0xFF0284C7),
                                                         shape: BoxShape.circle,
                                                       ),
                                                     ),
@@ -420,7 +457,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                                       style: TextStyle(
                                                         fontWeight: isRead ? FontWeight.w600 : FontWeight.bold,
                                                         fontSize: 13.5,
-                                                        color: AppColors.textMain,
+                                                        color: isRead ? Colors.grey.shade800 : const Color(0xFF0F172A),
                                                       ),
                                                       maxLines: 1,
                                                       overflow: TextOverflow.ellipsis,
@@ -597,7 +634,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       appBar: AppBar(
         centerTitle: false,
-        titleSpacing: NavigationToolbar.kMiddleSpacing,
+        titleSpacing: 0,
         title: Text(
           _appName,
           style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 18),
@@ -615,42 +652,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
               constraints: const BoxConstraints(),
             ),
           // Bell Icon before avatar icon in header in the right top corner
-          Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.center,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: AppColors.textMain, size: 22),
-                tooltip: 'Notifications',
-                onPressed: _showNotificationsSheet,
-                padding: const EdgeInsets.all(8),
-                constraints: const BoxConstraints(),
-              ),
-              if (_unreadNotifsCount > 0)
-                Positioned(
-                  top: 4,
-                  right: 4,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                    decoration: BoxDecoration(
-                      color: AppColors.danger,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-                    child: Center(
-                      child: Text(
-                        _unreadNotifsCount > 9 ? '9+' : '$_unreadNotifsCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 9,
-                          fontWeight: FontWeight.bold,
-                          height: 1.0,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications, color: AppColors.primary, size: 24),
+                  tooltip: 'Notifications',
+                  onPressed: _showNotificationsSheet,
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
+                ),
+                if (_unreadNotifsCount > 0)
+                  Positioned(
+                    top: 4,
+                    right: 4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: AppColors.danger,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white, width: 1.5),
+                      ),
+                      constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                      child: Center(
+                        child: Text(
+                          _unreadNotifsCount > 9 ? '9+' : '$_unreadNotifsCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            height: 1.0,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(width: 4),
           // Avatar Icon in right top corner

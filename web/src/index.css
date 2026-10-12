@@ -303,3 +303,136 @@ input:focus, select:focus {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
+
+/* Mobile Responsive Drawer & Layout */
+.mobile-menu-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--primary);
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobile-menu-toggle {
+    display: inline-flex;
+    margin-right: 8px;
+  }
+
+  .header {
+    padding: 0 0.85rem !important;
+  }
+
+  .header h2 {
+    font-size: 1.15rem !important;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 270px !important;
+    z-index: 1500 !important;
+    transform: translateX(-100%);
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(2px);
+    z-index: 1400;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .content-area {
+    padding: 1rem 0.75rem !important;
+  }
+
+  .main-content .header {
+    display: none; /* Hide duplicate sub-header on small mobile screens */
+  }
+
+  .card {
+    padding: 1.25rem 1rem !important;
+  }
+
+  .user-card {
+    flex-direction: column !important;
+    gap: 12px;
+  }
+
+  .accordion-header {
+    padding: 1rem !important;
+    font-size: 0.95rem !important;
+  }
+
+  /* Responsive grids & flex */
+  .grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Registration Builder Mobile */
+  .builder-layout {
+    flex-direction: column !important;
+  }
+
+  .builder-sidebar {
+    width: 100% !important;
+    max-height: 220px !important;
+  }
+
+  .modal, .modal-content {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    padding: 1rem !important;
+  }
+
+  /* Notification dropdown on mobile */
+  .notification-popover {
+    width: calc(100vw - 20px) !important;
+    right: -10px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .flex {
+    flex-wrap: wrap;
+  }
+
+  input, select, button {
+    font-size: 0.9rem;
+  }
+
+  .avatar {
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 0.8rem !important;
+  }
+}

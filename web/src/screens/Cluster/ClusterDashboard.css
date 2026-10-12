@@ -294,3 +294,36 @@
 .evidence-item .btn-small {
   white-space: nowrap;
 }
+
+/* Mobile Web Responsiveness */
+@media (max-width: 768px) {
+  .cluster-container {
+    padding: 1rem !important;
+    border-radius: 12px !important;
+  }
+
+  .gate-header {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .device-list {
+    grid-template-columns: 1fr !important;
+  }
+
+  .modal-content {
+    max-width: 95vw !important;
+    padding: 1.25rem 1rem !important;
+  }
+
+  .evidence-item {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .evidence-item > div:last-child {
+    width: 100% !important;
+    justify-content: flex-start !important;
+  }
+}

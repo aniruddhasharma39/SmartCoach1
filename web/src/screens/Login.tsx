@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { FaLightbulb, FaMobileAlt, FaEnvelope, FaExclamationTriangle, FaCheckCircle } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
 
@@ -259,7 +260,10 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
               fontWeight: 500,
             }}
           >
-            ⚠️ {error}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FaExclamationTriangle style={{ flexShrink: 0 }} />
+              <span>{error}</span>
+            </div>
           </div>
         )}
 
@@ -276,7 +280,10 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
               fontWeight: 600,
             }}
           >
-            ✅ {successMsg}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FaCheckCircle style={{ flexShrink: 0 }} />
+              <span>{successMsg}</span>
+            </div>
           </div>
         )}
 
@@ -294,7 +301,7 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
             }}
           >
             <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-              <span>💡</span> Account Notice
+              <FaLightbulb color="#d97706" size={14} /> Account Notice
             </div>
             <div>{suggestion.message}</div>
             <button
@@ -306,6 +313,10 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
                 fontSize: '0.82rem',
                 backgroundColor: 'var(--primary)',
                 width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '6px',
               }}
               onClick={() => {
                 const targetTab = suggestion.alternative;
@@ -315,7 +326,11 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
                 setOtpSent(false);
               }}
             >
-              Switch to {suggestion.alternative === 'phone' ? '📱 Mobile OTP' : '📧 Email OTP'}
+              {suggestion.alternative === 'phone' ? (
+                <>Switch to <FaMobileAlt size={13} /> Mobile OTP</>
+              ) : (
+                <>Switch to <FaEnvelope size={13} /> Email OTP</>
+              )}
             </button>
           </div>
         )}
@@ -432,7 +447,9 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
                     setOtpSent(false);
                   }}
                 >
-                  📱 Mobile OTP
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FaMobileAlt size={14} /> Mobile OTP
+                  </span>
                 </button>
               )}
 
@@ -456,7 +473,9 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
                     setOtpSent(false);
                   }}
                 >
-                  📧 Email OTP
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FaEnvelope size={14} /> Email OTP
+                  </span>
                 </button>
               )}
             </div>

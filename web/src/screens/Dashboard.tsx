@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
-import { FaBell } from 'react-icons/fa';
+import { 
+  FaBell, FaBars, FaTimes, FaUser, FaUserCircle, 
+  FaUserPlus, FaNetworkWired, FaMicrochip, FaCheckCircle, 
+  FaLock, FaSearchPlus, FaChevronDown, FaChevronUp, FaSyncAlt 
+} from 'react-icons/fa';
 import type { User, NotificationItem } from '../types';
 import Roles from './Roles';
 import RegistrationBuilder from './RegistrationBuilder';
@@ -28,6 +32,7 @@ export default function Dashboard({ user, onLogout }: Props) {
   const [systemModules, setSystemModules] = useState<any[]>(DEFAULT_SYSTEM_MODULES);
   const [branding, setBranding] = useState({ appName: 'LC Platform' });
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Notifications State
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -115,7 +120,13 @@ export default function Dashboard({ user, onLogout }: Props) {
     }
   };
 
-  const markAllNotificationsAsRead = async () => {
+  const markAllNotificationsAsRead = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    setUnreadCount(0);
     try {
       await fetch(`${API_URL}/api/v1/notifications/read-all`, {
         method: 'POST',
@@ -125,24 +136,42 @@ export default function Dashboard({ user, onLogout }: Props) {
         },
         body: JSON.stringify({ notificationIds: notifications.map(n => n.id) })
       });
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-      setUnreadCount(0);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const clearAllNotifications = async (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    setNotifications([]);
+    setUnreadCount(0);
+    try {
+      await fetch(`${API_URL}/api/v1/notifications/clear-all`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
     } catch (err) {
       console.error(err);
     }
   };
 
   const dismissNotification = async (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    setNotifications(prev => {
+      const filtered = prev.filter(n => n.id !== id);
+      setUnreadCount(filtered.filter(n => !n.isRead).length);
+      return filtered;
+    });
     try {
       await fetch(`${API_URL}/api/v1/notifications/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      setNotifications(prev => {
-        const filtered = prev.filter(n => n.id !== id);
-        setUnreadCount(filtered.filter(n => !n.isRead).length);
-        return filtered;
       });
     } catch (err) {
       console.error(err);
@@ -197,7 +226,20 @@ export default function Dashboard({ user, onLogout }: Props) {
   const isImgUrl = (val: any) => {
     if (typeof val !== 'string') return false;
     const lower = val.toLowerCase().trim();
-    return lower.startsWith('http') && (lower.includes('/image/upload/') || lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif'));
+    return (
+      (lower.startsWith('http://') || lower.startsWith('https://')) &&
+      (
+        lower.includes('/image/upload/') ||
+        lower.includes('cloudinary') ||
+        lower.includes('res.cloudinary') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.svg')
+      )
+    );
   };
 
   useEffect(() => {
@@ -300,9 +342,31 @@ export default function Dashboard({ user, onLogout }: Props) {
         </div>
       )}
       <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', borderBottom: '1px solid var(--border)', padding: '0.75rem 1.5rem' }}>
-        <h2 style={{ margin: 0, color: 'var(--primary)' }}>
-          {branding.appName}
-        </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button 
+            type="button" 
+            className="mobile-menu-toggle"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-label="Toggle navigation menu"
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              cursor: 'pointer', 
+              padding: '6px', 
+              color: 'var(--primary)', 
+              fontSize: '1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '6px'
+            }}
+          >
+            {isMobileMenuOpen ? <FaTimes /> : <FaBars />}
+          </button>
+          <h2 style={{ margin: 0, color: 'var(--primary)', fontSize: '1.25rem' }}>
+            {branding.appName}
+          </h2>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           {/* Notification Bell */}
           <div style={{ position: 'relative' }}>
@@ -395,31 +459,43 @@ export default function Dashboard({ user, onLogout }: Props) {
                       </span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {notifications.length > 0 && (
-                      <button 
-                        type="button" 
-                        style={{ background: 'none', border: 'none', color: 'var(--secondary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: '2px 4px' }}
-                        onClick={markAllNotificationsAsRead}
-                      >
-                        Mark all as read
-                      </button>
+                      <>
+                        <button 
+                          type="button" 
+                          style={{ background: 'none', border: 'none', color: 'var(--primary)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: '2px 4px' }}
+                          onClick={markAllNotificationsAsRead}
+                          title="Mark all as read"
+                        >
+                          Mark read
+                        </button>
+                        <button 
+                          type="button" 
+                          style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', padding: '2px 4px' }}
+                          onClick={clearAllNotifications}
+                          title="Clear all notifications"
+                        >
+                          Clear all
+                        </button>
+                      </>
                     )}
                     <button 
                       type="button"
-                      style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '0.9rem', cursor: 'pointer', padding: 0 }}
+                      style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: '0.85rem', cursor: 'pointer', padding: '2px 4px', display: 'flex', alignItems: 'center' }}
                       onClick={() => setIsNotificationsOpen(false)}
+                      title="Close"
                     >
-                      ✕
+                      <FaTimes />
                     </button>
                   </div>
                 </div>
 
                 <div style={{ overflowY: 'auto', maxHeight: '400px', display: 'flex', flexDirection: 'column' }}>
                   {notifications.length === 0 ? (
-                    <div style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: '0.88rem' }}>
-                      <div style={{ fontSize: '1.8rem', marginBottom: 8 }}>🎉</div>
-                      No notifications right now.
+                    <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--muted)', fontSize: '0.88rem' }}>
+                      <FaCheckCircle size={32} style={{ color: '#10b981', marginBottom: 8 }} />
+                      <div>No notifications right now.</div>
                     </div>
                   ) : (
                     notifications.map(item => (
@@ -428,27 +504,51 @@ export default function Dashboard({ user, onLogout }: Props) {
                         onClick={() => handleNotificationClick(item)}
                         style={{
                           padding: '12px 14px',
-                          borderBottom: '1px solid rgba(0,0,0,0.05)',
-                          backgroundColor: item.isRead ? '#fff' : 'rgba(11,60,122,0.03)',
+                          borderBottom: '1px solid #f1f5f9',
+                          backgroundColor: item.isRead ? '#ffffff' : '#f0f9ff',
+                          borderLeft: item.isRead ? '4px solid transparent' : '4px solid #0284c7',
                           display: 'flex',
-                          gap: 10,
+                          gap: 12,
                           alignItems: 'flex-start',
                           cursor: 'pointer',
                           transition: 'background 0.15s ease',
                           position: 'relative'
                         }}
                       >
-                        <span style={{ fontSize: '1.2rem', marginTop: 1 }}>
-                          {item.type === 'user_request' ? '👤' : item.type === 'cluster_created' ? '🌐' : '📟'}
-                        </span>
+                        <div style={{ 
+                          width: 32, 
+                          height: 32, 
+                          borderRadius: '50%', 
+                          backgroundColor: item.type === 'user_request' ? '#e0f2fe' : item.type === 'cluster_created' ? '#ecfdf5' : '#fef3c7',
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          marginTop: 2
+                        }}>
+                          {item.type === 'user_request' ? (
+                            <FaUserPlus style={{ color: '#0284c7', fontSize: '0.95rem' }} />
+                          ) : item.type === 'cluster_created' ? (
+                            <FaNetworkWired style={{ color: '#10b981', fontSize: '0.95rem' }} />
+                          ) : (
+                            <FaMicrochip style={{ color: '#d97706', fontSize: '0.95rem' }} />
+                          )}
+                        </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 6 }}>
-                            <strong style={{ fontSize: '0.85rem', color: '#1e293b' }}>{item.title}</strong>
-                            <small style={{ fontSize: '0.72rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <strong style={{ fontSize: '0.85rem', color: item.isRead ? '#475569' : '#0f172a', fontWeight: item.isRead ? 600 : 700 }}>
+                                {item.title}
+                              </strong>
+                              {!item.isRead && (
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#0284c7', display: 'inline-block' }} />
+                              )}
+                            </div>
+                            <small style={{ fontSize: '0.72rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
                               {new Date(item.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </small>
                           </div>
-                          <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: '#475569', lineHeight: 1.35 }}>
+                          <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: item.isRead ? '#64748b' : '#334155', lineHeight: 1.35 }}>
                             {item.message}
                           </p>
                         </div>
@@ -461,12 +561,15 @@ export default function Dashboard({ user, onLogout }: Props) {
                             border: 'none',
                             color: '#94a3b8',
                             cursor: 'pointer',
-                            padding: '2px',
-                            fontSize: '0.85rem',
-                            lineHeight: 1
+                            padding: '4px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '4px',
+                            flexShrink: 0
                           }}
                         >
-                          ✕
+                          <FaTimes size={12} />
                         </button>
                       </div>
                     ))
@@ -501,14 +604,14 @@ export default function Dashboard({ user, onLogout }: Props) {
                 <button
                   type="button"
                   className="outline w-full"
-                  style={{ padding: '8px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600 }}
+                  style={{ padding: '8px 12px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 600 }}
                   onClick={() => {
                     setIsDropdownOpen(false);
                     fetchUserProfile();
                     setShowProfileModal(true);
                   }}
                 >
-                  <span>👤</span> Profile Details
+                  <FaUser /> Profile Details
                 </button>
                 <button 
                   className="danger w-full" 
@@ -523,10 +626,16 @@ export default function Dashboard({ user, onLogout }: Props) {
         </div>
       </header>
 
+      {/* Mobile Drawer Backdrop */}
+      <div 
+        className={`sidebar-backdrop ${isMobileMenuOpen ? 'active' : ''}`}
+        onClick={() => setIsMobileMenuOpen(false)}
+      />
+
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        <div className="sidebar" style={{ height: '100%', overflowY: 'auto' }}>
+        <div className={`sidebar ${isMobileMenuOpen ? 'mobile-open' : ''}`} style={{ height: '100%', overflowY: 'auto' }}>
         <nav className="sidebar-nav">
-          <a href="#" className={`nav-item ${currentView === 'home' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setCurrentView('home'); }}>Home</a>
+          <a href="#" className={`nav-item ${currentView === 'home' ? 'active' : ''}`} onClick={(e) => { e.preventDefault(); setCurrentView('home'); setIsMobileMenuOpen(false); }}>Home</a>
           
           {(() => {
             const isDev = user.role === 'Developer';
@@ -537,7 +646,7 @@ export default function Dashboard({ user, onLogout }: Props) {
                 key={mod.slug} 
                 href="#" 
                 className={`nav-item ${currentView === mod.slug ? 'active' : ''}`} 
-                onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); }}
+                onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); setIsMobileMenuOpen(false); }}
               >
                 {mod.name}
               </a>
@@ -561,8 +670,8 @@ export default function Dashboard({ user, onLogout }: Props) {
           
           {currentView === 'manage-users' && (
             <>
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex gap-4">
+              <div className="flex justify-between items-center mb-4" style={{ flexWrap: 'wrap', gap: 12 }}>
+                <div className="flex gap-4" style={{ flexWrap: 'wrap' }}>
                   <button 
                     className={activeTab === 'existing' ? 'primary' : 'outline'} 
                     onClick={() => setActiveTab('existing')}
@@ -581,7 +690,7 @@ export default function Dashboard({ user, onLogout }: Props) {
                   style={{ display: 'flex', alignItems: 'center', gap: 8 }}
                   onClick={fetchUsers}
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                  <FaSyncAlt size={13} />
                   Refresh
                 </button>
               </div>
@@ -592,19 +701,57 @@ export default function Dashboard({ user, onLogout }: Props) {
                   {pendingRequests.map(req => {
                     const reqData = JSON.parse(req.data || '{}');
                     const { fullName, formattedData } = getDisplayData(req, reqData);
+                    
+                    const textEntries: [string, any][] = [];
+                    const imgEntries: [string, any][] = [];
+                    for (const [k, v] of Object.entries(formattedData)) {
+                      if (isImgUrl(v)) imgEntries.push([k, v]);
+                      else textEntries.push([k, v]);
+                    }
+
                     return (
-                      <div key={req.id} className="card">
-                        <div className="flex justify-between items-center">
-                          <div>
-                            <div style={{ fontWeight: 'bold' }}>{fullName}</div>
-                            <div className="text-sm text-muted">
-                              {Object.entries(formattedData).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+                      <div key={req.id} className="card" style={{ padding: 18 }}>
+                        <div className="flex justify-between items-start" style={{ flexWrap: 'wrap', gap: 16 }}>
+                          <div style={{ flex: 1, minWidth: '240px' }}>
+                            <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>{fullName}</div>
+                            <div className="text-sm text-muted" style={{ marginTop: 6, lineHeight: 1.5 }}>
+                              {textEntries.map(([k, v]) => `${k}: ${v}`).join(' | ')}
                             </div>
+
+                            {/* Cloudinary & Image Thumbnails */}
+                            {imgEntries.length > 0 && (
+                              <div style={{ display: 'flex', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
+                                {imgEntries.map(([label, url]) => (
+                                  <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{label}</span>
+                                    <div 
+                                      style={{ 
+                                        position: 'relative', width: 72, height: 72, borderRadius: 8, 
+                                        overflow: 'hidden', border: '1px solid #cbd5e1', cursor: 'pointer',
+                                        boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                                      }}
+                                      onClick={() => setImagePreviewUrl(url)}
+                                      title="Click to view full image"
+                                    >
+                                      <img src={url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                      <div style={{ 
+                                        position: 'absolute', bottom: 3, right: 3, 
+                                        backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, 
+                                        padding: 3, display: 'flex', alignItems: 'center', justifyContent: 'center' 
+                                      }}>
+                                        <FaSearchPlus color="#fff" size={10} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
                             <div className="text-sm text-muted mt-2">
                               Form: <strong>{req.form?.name}</strong> | Requested Role ID: <strong>{req.requestedRoleId}</strong>
                             </div>
                           </div>
-                          <div className="flex-col gap-2">
+                          <div className="flex-col gap-2" style={{ minWidth: '160px' }}>
                             <select 
                               id={`role-${req.id}`} 
                               defaultValue={req.requestedRoleId} 
@@ -617,7 +764,7 @@ export default function Dashboard({ user, onLogout }: Props) {
                             <div className="flex gap-2">
                               <button 
                                 className="success" 
-                                style={{ backgroundColor: 'var(--success)', color: 'white' }}
+                                style={{ backgroundColor: 'var(--success)', color: 'white', flex: 1 }}
                                 onClick={() => {
                                   const select = document.getElementById(`role-${req.id}`) as HTMLSelectElement;
                                   handleAction(req.id, 'approve', { roleId: Number(select.value) }, true);
@@ -627,6 +774,7 @@ export default function Dashboard({ user, onLogout }: Props) {
                               </button>
                               <button 
                                 className="danger"
+                                style={{ flex: 1 }}
                                 onClick={() => {
                                   const reason = prompt('Rejection reason (optional):');
                                   handleAction(req.id, 'reject', { reason }, true);
@@ -651,23 +799,26 @@ export default function Dashboard({ user, onLogout }: Props) {
                     </div>
                   )}
                   {Object.entries(usersByRole).map(([roleName, roleUsers]) => (
-                    <div key={roleName}>
+                    <div key={roleName} style={{ marginBottom: 12 }}>
                       <div 
                         className="accordion-header" 
                         onClick={() => setOpenSection(openSection === roleName ? null : roleName)}
+                        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                       >
                         <div className="flex gap-4 items-center">
                           <span className="badge" style={{ backgroundColor: 'var(--secondary)' }}>{(roleUsers as any[]).length}</span>
-                          <span>{roleName}</span>
+                          <span style={{ fontWeight: 600 }}>{roleName}</span>
                         </div>
-                        <span>{openSection === roleName ? '▲' : '▼'}</span>
+                        <span style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>
+                          {openSection === roleName ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+                        </span>
                       </div>
                       
                       {openSection === roleName && (
                         <div className="accordion-content">
                           {(roleUsers as any[]).map((u: any) => (
                             <div key={u.id} className="user-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                              <div className="flex justify-between items-start">
+                              <div className="flex justify-between items-start" style={{ flexWrap: 'wrap', gap: 8 }}>
                                 <div>
                                   <div style={{ fontWeight: 'bold' }}>{u.fullName}</div>
                                   <div className="text-sm text-muted">{u.employeeId} | {u.department}</div>
@@ -688,20 +839,44 @@ export default function Dashboard({ user, onLogout }: Props) {
                                     const cleanedMeta: Record<string, any> = {};
                                     for (const [k, v] of Object.entries(meta)) {
                                       if (k.toLowerCase().includes('password')) continue;
-                                      if (k.startsWith('field_')) continue; // Should not exist, but just in case skip them
+                                      if (k.startsWith('field_')) continue;
                                       cleanedMeta[k] = v;
                                     }
 
                                     if (Object.keys(cleanedMeta).length === 0) return <span className="text-muted">No additional details</span>;
                                     
                                     return (
-                                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                        {Object.entries(cleanedMeta).map(([k, v]) => (
-                                          <div key={k} style={{ display: 'flex', flexDirection: 'column' }}>
-                                            <span className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</span>
-                                            <strong style={{ color: '#333' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</strong>
-                                          </div>
-                                        ))}
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
+                                        {Object.entries(cleanedMeta).map(([k, v]) => {
+                                          const isImg = isImgUrl(v);
+                                          return (
+                                            <div key={k} style={{ display: 'flex', flexDirection: 'column' }}>
+                                              <span className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</span>
+                                              {isImg ? (
+                                                <div 
+                                                  style={{ 
+                                                    position: 'relative', width: 72, height: 72, borderRadius: 8, 
+                                                    overflow: 'hidden', border: '1px solid var(--border)', marginTop: 4, cursor: 'pointer',
+                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                                                  }}
+                                                  onClick={() => setImagePreviewUrl(v)}
+                                                  title="Click to view full image"
+                                                >
+                                                  <img src={v} alt={k} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                  <div style={{ 
+                                                    position: 'absolute', bottom: 3, right: 3, 
+                                                    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, 
+                                                    padding: 3, display: 'flex', alignItems: 'center', justifyContent: 'center' 
+                                                  }}>
+                                                    <FaSearchPlus color="#fff" size={10} />
+                                                  </div>
+                                                </div>
+                                              ) : (
+                                                <strong style={{ color: '#333' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</strong>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
                                       </div>
                                     );
                                   } catch (e) {
@@ -728,6 +903,7 @@ export default function Dashboard({ user, onLogout }: Props) {
           )}
         </main>
       </div>
+
       {/* Profile Details Modal */}
       {showProfileModal && (
         <div 
@@ -754,10 +930,16 @@ export default function Dashboard({ user, onLogout }: Props) {
               backgroundColor: 'var(--surface)' 
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: '1.3rem' }}>👤</span>
+                <FaUserCircle size={22} style={{ color: 'var(--primary)' }} />
                 <h3 style={{ margin: 0, color: 'var(--primary)', fontWeight: 800 }}>Profile Details</h3>
               </div>
-              <button className="icon-btn" style={{ fontSize: '1.1rem', cursor: 'pointer' }} onClick={() => setShowProfileModal(false)}>✕</button>
+              <button 
+                className="icon-btn" 
+                style={{ fontSize: '1.1rem', cursor: 'pointer', display: 'flex', alignItems: 'center' }} 
+                onClick={() => setShowProfileModal(false)}
+              >
+                <FaTimes size={15} />
+              </button>
             </div>
 
             <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -836,13 +1018,28 @@ export default function Dashboard({ user, onLogout }: Props) {
                             <div key={k} style={{ display: 'flex', flexDirection: 'column' }}>
                               <span className="text-muted" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{label.toUpperCase()}</span>
                               {isImg ? (
-                                <img
-                                  src={v}
-                                  alt={label}
-                                  style={{ width: 100, height: 70, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)', marginTop: 4, cursor: 'pointer' }}
+                                <div
+                                  style={{
+                                    position: 'relative', width: 90, height: 70, borderRadius: 8,
+                                    overflow: 'hidden', border: '1px solid var(--border)', marginTop: 4,
+                                    cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                                  }}
                                   onClick={() => setImagePreviewUrl(v)}
                                   title="Click to view full image"
-                                />
+                                >
+                                  <img
+                                    src={v}
+                                    alt={label}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                  />
+                                  <div style={{
+                                    position: 'absolute', bottom: 3, right: 3,
+                                    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4,
+                                    padding: 3, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                  }}>
+                                    <FaSearchPlus color="#fff" size={10} />
+                                  </div>
+                                </div>
                               ) : (
                                 <strong style={{ fontSize: '0.95rem', color: '#1e293b' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</strong>
                               )}
@@ -857,8 +1054,8 @@ export default function Dashboard({ user, onLogout }: Props) {
                 })()}
               </div>
 
-              <div style={{ padding: '10px 14px', backgroundColor: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd', fontSize: '0.82rem', color: '#0369a1' }}>
-                🔒 <strong>Read-Only Notice:</strong> This profile reflects your verified registration record. Contact your system administrator to request updates.
+              <div style={{ padding: '10px 14px', backgroundColor: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd', fontSize: '0.82rem', color: '#0369a1', display: 'flex', alignItems: 'center' }}>
+                <span><FaLock style={{ marginRight: 8, verticalAlign: -1 }} /> <strong>Read-Only Notice:</strong> This profile reflects your verified registration record. Contact your system administrator to request updates.</span>
               </div>
             </div>
 
@@ -881,7 +1078,16 @@ export default function Dashboard({ user, onLogout }: Props) {
         >
           <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
             <img src={imagePreviewUrl} alt="Preview" style={{ maxWidth: '100%', maxHeight: '85vh', borderRadius: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }} />
-            <button style={{ position: 'absolute', top: -35, right: 0, background: 'none', border: 'none', color: '#fff', fontSize: '1.5rem', cursor: 'pointer' }} onClick={() => setImagePreviewUrl(null)}>✕</button>
+            <button 
+              style={{ 
+                position: 'absolute', top: -35, right: 0, 
+                background: 'none', border: 'none', color: '#fff', 
+                fontSize: '1.5rem', cursor: 'pointer', display: 'flex', alignItems: 'center' 
+              }} 
+              onClick={() => setImagePreviewUrl(null)}
+            >
+              <FaTimes size={20} />
+            </button>
           </div>
         </div>
       )}
