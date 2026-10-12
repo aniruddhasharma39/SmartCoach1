@@ -77,7 +77,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted && data is Map) {
           setState(() {
             _notifications = List.from(data['notifications'] ?? []);
-            _unreadNotifsCount = data['unreadCount'] ?? 0;
+            final rawCount = data['unreadCount'];
+            _unreadNotifsCount = rawCount is int ? rawCount : (int.tryParse(rawCount?.toString() ?? '0') ?? 0);
           });
         }
       }
@@ -595,33 +596,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_appName, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)), 
+        centerTitle: false,
+        titleSpacing: NavigationToolbar.kMiddleSpacing,
+        title: Text(
+          _appName,
+          style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary, fontSize: 18),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        ),
         backgroundColor: AppColors.surface,
         actions: [
           if (_currentView == 'manage-users')
             IconButton(
-              icon: const Icon(Icons.refresh),
+              icon: const Icon(Icons.refresh, size: 20),
               tooltip: 'Refresh',
               onPressed: _fetchData,
+              padding: const EdgeInsets.all(8),
+              constraints: const BoxConstraints(),
             ),
           // Bell Icon before avatar icon in header in the right top corner
           Stack(
+            clipBehavior: Clip.none,
             alignment: Alignment.center,
             children: [
               IconButton(
-                icon: const Icon(Icons.notifications_outlined, color: AppColors.textMain),
+                icon: const Icon(Icons.notifications_outlined, color: AppColors.textMain, size: 22),
                 tooltip: 'Notifications',
                 onPressed: _showNotificationsSheet,
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(),
               ),
               if (_unreadNotifsCount > 0)
                 Positioned(
-                  top: 10,
-                  right: 10,
+                  top: 4,
+                  right: 4,
                   child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: const BoxDecoration(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
                       color: AppColors.danger,
-                      shape: BoxShape.circle,
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
                     child: Center(
@@ -631,7 +644,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           color: Colors.white,
                           fontSize: 9,
                           fontWeight: FontWeight.bold,
-                          height: 1,
+                          height: 1.0,
                         ),
                       ),
                     ),
@@ -639,32 +652,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
             ],
           ),
+          const SizedBox(width: 4),
           // Avatar Icon in right top corner
-          Padding(
-            padding: const EdgeInsets.only(right: 12, left: 4),
-            child: InkWell(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => ProfileScreen(user: widget.user)),
-                );
-              },
-              borderRadius: BorderRadius.circular(20),
-              child: Tooltip(
-                message: 'Profile Settings',
-                child: CircleAvatar(
-                  radius: 17,
-                  backgroundColor: AppColors.primary,
-                  child: Text(
-                    widget.user['fullName'] != null && widget.user['fullName'].toString().isNotEmpty
-                        ? widget.user['fullName'].toString().substring(0, widget.user['fullName'].toString().length >= 2 ? 2 : 1).toUpperCase()
-                        : 'U',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
+          InkWell(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ProfileScreen(user: widget.user)),
+              );
+            },
+            borderRadius: BorderRadius.circular(18),
+            child: Tooltip(
+              message: 'Profile Settings',
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: AppColors.primary,
+                child: Text(
+                  widget.user['fullName'] != null && widget.user['fullName'].toString().isNotEmpty
+                      ? widget.user['fullName'].toString().substring(0, widget.user['fullName'].toString().length >= 2 ? 2 : 1).toUpperCase()
+                      : 'U',
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                 ),
               ),
             ),
           ),
+          const SizedBox(width: 12),
         ],
       ),
       drawer: Drawer(

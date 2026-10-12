@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { FaBell } from 'react-icons/fa';
 import type { User, NotificationItem } from '../types';
 import Roles from './Roles';
 import RegistrationBuilder from './RegistrationBuilder';
@@ -307,44 +308,49 @@ export default function Dashboard({ user, onLogout }: Props) {
           <div style={{ position: 'relative' }}>
             <button 
               type="button" 
-              className="icon-btn" 
               style={{ 
                 position: 'relative', 
-                background: isNotificationsOpen ? 'rgba(11,60,122,0.08)' : 'transparent',
-                border: '1px solid var(--border)',
+                background: isNotificationsOpen ? '#e0f2fe' : '#f8fafc',
+                border: isNotificationsOpen ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
                 borderRadius: '50%',
-                width: 40,
-                height: 40,
+                width: '42px',
+                height: '42px',
+                minWidth: '42px',
+                minHeight: '42px',
+                padding: 0,
+                margin: 0,
+                boxSizing: 'border-box',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
-                color: 'var(--primary)',
                 transition: 'all 0.2s ease',
+                boxShadow: isNotificationsOpen ? '0 0 0 3px rgba(2, 132, 199, 0.15)' : '0 1px 3px rgba(0,0,0,0.06)',
               }}
               onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
               title="Notifications"
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-              </svg>
+              <FaBell size={19} style={{ color: isNotificationsOpen ? '#0284c7' : '#475569', display: 'block' }} />
               {unreadCount > 0 && (
                 <span style={{
                   position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  backgroundColor: 'var(--danger)',
-                  color: 'white',
-                  borderRadius: '50%',
-                  width: 18,
-                  height: 18,
-                  fontSize: '0.7rem',
+                  top: '-3px',
+                  right: '-3px',
+                  backgroundColor: '#ef4444',
+                  color: '#ffffff',
+                  borderRadius: '9999px',
+                  minWidth: '18px',
+                  height: '18px',
+                  padding: '0 4px',
+                  fontSize: '0.68rem',
                   fontWeight: 'bold',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: '0 0 0 2px #fff',
+                  border: '2px solid #ffffff',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  lineHeight: 1,
+                  pointerEvents: 'none',
                 }}>
                   {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
@@ -357,11 +363,10 @@ export default function Dashboard({ user, onLogout }: Props) {
                 className="card"
                 style={{
                   position: 'absolute',
-                  top: '100%',
-                  right: -50,
-                  marginTop: '0.6rem',
-                  width: 360,
-                  maxWidth: '90vw',
+                  top: 'calc(100% + 8px)',
+                  right: 0,
+                  width: 380,
+                  maxWidth: '92vw',
                   maxHeight: '480px',
                   display: 'flex',
                   flexDirection: 'column',
