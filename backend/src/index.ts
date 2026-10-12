@@ -9,6 +9,7 @@ import registrationFormsRoutes from './routes/registration-forms';
 import settingsRoutes from './routes/settings';
 import lcgateRoutes from './routes/lcgate';
 import evidenceRoutes from './routes/evidence';
+import notificationsRoutes from './routes/notifications';
 import { errorHandler } from './middleware/error';
 
 import path from 'path';
@@ -41,6 +42,7 @@ app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/branding', settingsRoutes);
 app.use('/api/v1/lcgate', lcgateRoutes);
 app.use('/api/v1/evidence', evidenceRoutes);
+app.use('/api/v1/notifications', notificationsRoutes);
 
 // Error Handling
 app.use(errorHandler);

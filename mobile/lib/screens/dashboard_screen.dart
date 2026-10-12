@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,7 @@ import 'roles_screen.dart';
 import 'branding_screen.dart';
 import 'registration_builder_screen.dart';
 import 'cluster/cluster_main_screen.dart';
+import 'profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -34,6 +36,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _currentView = 'home';
   String _appName = 'LC Platform';
 
+  // Notifications State
+  List<dynamic> _notifications = [];
+  int _unreadNotifsCount = 0;
+  Timer? _notifsTimer;
+
   bool get _canManageUsers =>
       widget.user['role'] == 'Developer' ||
       ((widget.user['allowedModules'] as List?)?.contains('manage-users') ?? false);
@@ -42,11 +49,448 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _fetchData();
+    _fetchNotifications();
+    _notifsTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchNotifications());
+  }
+
+  @override
+  void dispose() {
+    _notifsTimer?.cancel();
+    super.dispose();
   }
 
   Future<String> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('token') ?? '';
+  }
+
+  Future<void> _fetchNotifications() async {
+    try {
+      final token = await _getToken();
+      if (token.isEmpty) return;
+      final res = await http.get(
+        Uri.parse('$baseUrl/notifications'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        if (mounted && data is Map) {
+          setState(() {
+            _notifications = List.from(data['notifications'] ?? []);
+            _unreadNotifsCount = data['unreadCount'] ?? 0;
+          });
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _markAllNotifsRead() async {
+    try {
+      final token = await _getToken();
+      await http.post(
+        Uri.parse('$baseUrl/notifications/read-all'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (mounted) {
+        setState(() {
+          for (var n in _notifications) {
+            n['read'] = true;
+          }
+          _unreadNotifsCount = 0;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _markNotificationRead(String id) async {
+    try {
+      final token = await _getToken();
+      await http.put(
+        Uri.parse('$baseUrl/notifications/$id/read'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (mounted) {
+        setState(() {
+          final item = _notifications.firstWhere((n) => n['id'].toString() == id, orElse: () => null);
+          if (item != null && item['read'] != true) {
+            item['read'] = true;
+            if (_unreadNotifsCount > 0) _unreadNotifsCount--;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _dismissNotification(String id) async {
+    if (mounted) {
+      setState(() {
+        final item = _notifications.firstWhere((n) => n['id'].toString() == id, orElse: () => null);
+        if (item != null && item['read'] != true && _unreadNotifsCount > 0) {
+          _unreadNotifsCount--;
+        }
+        _notifications.removeWhere((n) => n['id'].toString() == id);
+      });
+    }
+    try {
+      final token = await _getToken();
+      await http.delete(
+        Uri.parse('$baseUrl/notifications/$id'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+    } catch (_) {}
+  }
+
+  String _formatRelativeTime(dynamic dateStr) {
+    if (dateStr == null) return '';
+    try {
+      final date = DateTime.parse(dateStr.toString()).toLocal();
+      final diff = DateTime.now().difference(date);
+      if (diff.inSeconds < 60) return 'Just now';
+      if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+      if (diff.inHours < 24) return '${diff.inHours}h ago';
+      if (diff.inDays < 7) return '${diff.inDays}d ago';
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  void _showNotificationsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.78,
+              ),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Drag Handle
+                  Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(7),
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.notifications_active, color: AppColors.primary, size: 20),
+                        ),
+                        const SizedBox(width: 10),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Notifications',
+                                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: AppColors.textMain),
+                                ),
+                                if (_unreadNotifsCount > 0) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.danger,
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(
+                                      '$_unreadNotifsCount new',
+                                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const Text(
+                              'Swipe left/right or tap ✕ to dismiss',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                        const Spacer(),
+                        if (_notifications.any((n) => n['read'] != true))
+                          TextButton.icon(
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: () async {
+                              await _markAllNotifsRead();
+                              setSheetState(() {});
+                            },
+                            icon: const Icon(Icons.done_all, size: 15, color: AppColors.primary),
+                            label: const Text(
+                              'Mark all read',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                            ),
+                          ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20, color: Colors.grey),
+                          onPressed: () => Navigator.pop(sheetContext),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Divider(height: 1, thickness: 1),
+
+                  // Notifications List
+                  Expanded(
+                    child: _notifications.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 50, horizontal: 24),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.notifications_none_rounded, size: 58, color: Colors.grey.shade400),
+                                const SizedBox(height: 12),
+                                const Text(
+                                  'No notifications yet',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textMain),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  "You're all caught up! New requests, clusters, and devices will appear here.",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            shrinkWrap: true,
+                            itemCount: _notifications.length,
+                            separatorBuilder: (_, _) => const SizedBox(height: 8),
+                            itemBuilder: (context, index) {
+                              final item = _notifications[index];
+                              final isRead = item['read'] == true;
+                              final notifType = item['type'] ?? 'info';
+                              final itemId = item['id'].toString();
+
+                              IconData typeIcon = Icons.notifications;
+                              Color iconColor = AppColors.primary;
+                              Color iconBg = AppColors.primary.withOpacity(0.1);
+
+                              if (notifType == 'request') {
+                                typeIcon = Icons.person_add_alt_1_rounded;
+                                iconColor = Colors.orange.shade700;
+                                iconBg = Colors.orange.shade50;
+                              } else if (notifType == 'cluster') {
+                                typeIcon = Icons.device_hub_rounded;
+                                iconColor = Colors.blue.shade700;
+                                iconBg = Colors.blue.shade50;
+                              } else if (notifType == 'device') {
+                                typeIcon = Icons.router_rounded;
+                                iconColor = Colors.teal.shade700;
+                                iconBg = Colors.teal.shade50;
+                              }
+
+                              return Dismissible(
+                                key: Key(itemId),
+                                direction: DismissDirection.horizontal,
+                                background: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade400,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  alignment: Alignment.centerLeft,
+                                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                                  child: Row(
+                                    children: const [
+                                      Icon(Icons.delete_outline, color: Colors.white, size: 20),
+                                      SizedBox(width: 6),
+                                      Text('Dismiss', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                    ],
+                                  ),
+                                ),
+                                secondaryBackground: Container(
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade400,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: const [
+                                      Text('Dismiss', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                      SizedBox(width: 6),
+                                      Icon(Icons.delete_outline, color: Colors.white, size: 20),
+                                    ],
+                                  ),
+                                ),
+                                onDismissed: (direction) {
+                                  _dismissNotification(itemId);
+                                  setSheetState(() {});
+                                },
+                                child: InkWell(
+                                  onTap: () {
+                                    if (!isRead) {
+                                      _markNotificationRead(itemId);
+                                    }
+                                    Navigator.pop(sheetContext);
+                                    if (item['link'] != null) {
+                                      setState(() {
+                                        _currentView = item['link'];
+                                      });
+                                    }
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: isRead ? Colors.white : const Color(0xFFF0FDF4).withOpacity(0.6),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isRead ? Colors.grey.shade200 : AppColors.primary.withOpacity(0.3),
+                                        width: isRead ? 1 : 1.5,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.02),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        )
+                                      ],
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        // Type Icon Avatar
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: iconBg,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(typeIcon, color: iconColor, size: 20),
+                                        ),
+                                        const SizedBox(width: 12),
+
+                                        // Content
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  if (!isRead) ...[
+                                                    Container(
+                                                      width: 7,
+                                                      height: 7,
+                                                      margin: const EdgeInsets.only(right: 6),
+                                                      decoration: const BoxDecoration(
+                                                        color: AppColors.primary,
+                                                        shape: BoxShape.circle,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                  Expanded(
+                                                    child: Text(
+                                                      item['title'] ?? 'Notification',
+                                                      style: TextStyle(
+                                                        fontWeight: isRead ? FontWeight.w600 : FontWeight.bold,
+                                                        fontSize: 13.5,
+                                                        color: AppColors.textMain,
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    _formatRelativeTime(item['createdAt']),
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      color: Colors.grey.shade500,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                item['message'] ?? '',
+                                                style: TextStyle(
+                                                  fontSize: 12.5,
+                                                  color: Colors.grey.shade700,
+                                                  height: 1.3,
+                                                ),
+                                              ),
+                                              if (item['link'] != null) ...[
+                                                const SizedBox(height: 6),
+                                                Row(
+                                                  children: const [
+                                                    Text(
+                                                      'Tap to view details',
+                                                      style: TextStyle(
+                                                        fontSize: 11,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: AppColors.primary,
+                                                      ),
+                                                    ),
+                                                    SizedBox(width: 2),
+                                                    Icon(Icons.arrow_forward, size: 11, color: AppColors.primary),
+                                                  ],
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+
+                                        // Individual "x" icon to dismiss
+                                        IconButton(
+                                          icon: Icon(Icons.close, size: 16, color: Colors.grey.shade400),
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          tooltip: 'Dismiss',
+                                          onPressed: () {
+                                            _dismissNotification(itemId);
+                                            setSheetState(() {});
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _fetchData() async {
@@ -130,31 +574,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _confirmAction(Map<String, dynamic> user, String action) async {
-    final isDeactivate = action == 'deactivate';
-    bool confirm = await showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isDeactivate ? 'Deactivate User?' : 'Reactivate User?'),
-        content: Text(isDeactivate 
-          ? 'Are you sure you want to deactivate ${user['fullName']}? They will not be able to log in.' 
-          : 'Are you sure you want to reactivate ${user['fullName']}?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: isDeactivate ? Colors.red : Colors.green),
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(isDeactivate ? 'Deactivate' : 'Reactivate'),
-          ),
-        ],
-      ),
-    ) ?? false;
-
-    if (confirm) {
-      await _actionUser(user['id'], action);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading && _systemModules.isEmpty) {
@@ -162,8 +581,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-
-    final isDev = widget.user['role'] == 'Developer';
     
     IconData getIconForModule(String slug) {
       switch (slug) {
@@ -186,7 +603,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
               icon: const Icon(Icons.refresh),
               tooltip: 'Refresh',
               onPressed: _fetchData,
-            )
+            ),
+          // Bell Icon before avatar icon in header in the right top corner
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_outlined, color: AppColors.textMain),
+                tooltip: 'Notifications',
+                onPressed: _showNotificationsSheet,
+              ),
+              if (_unreadNotifsCount > 0)
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: AppColors.danger,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: Center(
+                      child: Text(
+                        _unreadNotifsCount > 9 ? '9+' : '$_unreadNotifsCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          // Avatar Icon in right top corner
+          Padding(
+            padding: const EdgeInsets.only(right: 12, left: 4),
+            child: InkWell(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => ProfileScreen(user: widget.user)),
+                );
+              },
+              borderRadius: BorderRadius.circular(20),
+              child: Tooltip(
+                message: 'Profile Settings',
+                child: CircleAvatar(
+                  radius: 17,
+                  backgroundColor: AppColors.primary,
+                  child: Text(
+                    widget.user['fullName'] != null && widget.user['fullName'].toString().isNotEmpty
+                        ? widget.user['fullName'].toString().substring(0, widget.user['fullName'].toString().length >= 2 ? 2 : 1).toUpperCase()
+                        : 'U',
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       drawer: Drawer(
@@ -194,26 +672,96 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: EdgeInsets.zero,
           children: [
             DrawerHeader(
-              decoration: const BoxDecoration(color: AppColors.surface),
-              child: Row(
+              decoration: const BoxDecoration(
+                color: AppColors.surface,
+                border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(backgroundColor: AppColors.secondary, child: Text(widget.user['fullName'].substring(0,2).toUpperCase(), style: const TextStyle(color: Colors.white))),
-                  const SizedBox(width: 16),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  Row(
                     children: [
-                      Text(widget.user['fullName'], style: const TextStyle(fontWeight: FontWeight.bold)),
-                      Text(widget.user['role'], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      CircleAvatar(
+                        radius: 24,
+                        backgroundColor: AppColors.secondary,
+                        child: Text(
+                          widget.user['fullName'] != null && widget.user['fullName'].toString().isNotEmpty
+                              ? widget.user['fullName'].toString().substring(0, widget.user['fullName'].toString().length >= 2 ? 2 : 1).toUpperCase()
+                              : 'U',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.user['fullName'] ?? 'User',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              widget.user['role'] ?? '',
+                              style: const TextStyle(color: Colors.grey, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                  )
+                  ),
+                  const SizedBox(height: 12),
+                  // Profile Settings button below role and above divider before Home
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => ProfileScreen(user: widget.user)),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.primary.withOpacity(0.25)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.person_outline_rounded, size: 16, color: AppColors.primary),
+                          SizedBox(width: 6),
+                          Text(
+                            'Profile Settings',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          SizedBox(width: 4),
+                          Icon(Icons.chevron_right, size: 16, color: AppColors.primary),
+                        ],
+                      ),
+                    ),
+                  ),
                 ],
-              )
+              ),
             ),
-            ListTile(title: const Text('Home'), leading: const Icon(Icons.home), onTap: () {
-              setState(() { _currentView = 'home'; });
-              Navigator.pop(context);
-            }),
+            const Divider(height: 1, thickness: 1, color: Color(0xFFE5E7EB)),
+            ListTile(
+              title: const Text('Home'),
+              leading: const Icon(Icons.home),
+              onTap: () {
+                setState(() { _currentView = 'home'; });
+                Navigator.pop(context);
+              },
+            ),
             ..._systemModules.where((m) {
               if (widget.user['role'] == 'Developer') return true;
               final allowed = widget.user['allowedModules'];
@@ -229,9 +777,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               );
             }).toList(),
 
-            ListTile(title: const Text('Logout', style: TextStyle(color: AppColors.danger)), leading: const Icon(Icons.logout, color: AppColors.danger), onTap: widget.onLogout),
+            ListTile(
+              title: const Text('Logout', style: TextStyle(color: AppColors.danger)),
+              leading: const Icon(Icons.logout, color: AppColors.danger),
+              onTap: widget.onLogout,
+            ),
           ],
-        )
+        ),
       ),
       body: _buildBody(),
     );

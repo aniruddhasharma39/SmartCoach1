@@ -16,6 +16,8 @@ class AppColors {
   static const danger = Color(0xFFD64545);
   static const surface = Color(0xFFF4F6F9);
   static const background = Colors.white;
+  static const textMain = Color(0xFF1E293B);
+  static const textMuted = Color(0xFF64748B);
 }
 
 class MyApp extends StatelessWidget {

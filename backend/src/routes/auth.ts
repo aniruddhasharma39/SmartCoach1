@@ -163,7 +163,11 @@ async function createSession(user: any) {
       fullName: user.fullName,
       email: user.email,
       mobile: user.mobile,
+      employeeId: user.employeeId,
+      department: user.department,
       role: user.role?.name,
+      metadata: user.metadata,
+      createdAt: user.createdAt,
       mustChangePassword: user.mustChangePassword,
       allowedModules
     }
@@ -442,6 +446,49 @@ router.post('/logout', authenticate, async (req: any, res, next) => {
       });
     }
     res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/me', authenticate, async (req: any, res, next) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: {
+        role: {
+          include: {
+            roleModules: {
+              include: { module: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    let allowedModules = user.role?.roleModules?.map((rm: any) => rm.module?.slug) || [];
+    if (user.role?.name === 'Developer') {
+      const allModules = await prisma.module.findMany();
+      allowedModules = allModules.map((m: any) => m.slug);
+    }
+
+    res.json({
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      mobile: user.mobile,
+      employeeId: user.employeeId,
+      department: user.department,
+      role: user.role?.name,
+      metadata: user.metadata,
+      createdAt: user.createdAt,
+      status: user.status,
+      allowedModules
+    });
   } catch (error) {
     next(error);
   }
