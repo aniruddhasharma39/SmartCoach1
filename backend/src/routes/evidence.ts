@@ -20,6 +20,44 @@ cloudinary.config({
 
 const router = Router();
 
+/**
+ * Best-effort deletion of an evidence image from Cloudinary and/or the local
+ * uploads directory. Never throws: cleanup failures should not fail the request.
+ */
+async function deleteEvidenceFile(imageUrl?: string | null) {
+  if (!imageUrl) return;
+
+  // Local file: /uploads/<uuid>.jpg
+  if (imageUrl.startsWith('/uploads/')) {
+    try {
+      const filename = path.basename(imageUrl);
+      const filepath = path.join(process.cwd(), 'uploads', filename);
+      if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+    } catch (e) {
+      console.warn('Failed to remove local evidence file:', e);
+    }
+    return;
+  }
+
+  // Cloudinary URL: .../upload/v<version>/<folder>/<public_id>.<ext>
+  if (imageUrl.startsWith('http')) {
+    try {
+      const marker = '/upload/';
+      const idx = imageUrl.indexOf(marker);
+      if (idx !== -1) {
+        let publicId = imageUrl.slice(idx + marker.length);
+        // strip optional version segment (v123456/)
+        publicId = publicId.replace(/^v\d+\//, '');
+        // strip extension
+        publicId = publicId.replace(/\.[^./]+$/, '');
+        await cloudinary.uploader.destroy(publicId, { resource_type: 'image' });
+      }
+    } catch (e) {
+      console.warn('Failed to remove Cloudinary evidence asset:', e);
+    }
+  }
+}
+
 const uploadSchema = z.object({
   masterId: z.number(),
   childDeviceId: z.number().optional(),
@@ -119,6 +157,28 @@ router.post('/', authenticate, async (req: any, res, next) => {
       console.warn('Cloudinary upload failed, falling back to local file URL:', cldErr);
     }
 
+    // Replace any existing evidence for this exact slot so "Re-upload" does not
+    // create duplicates. Clean up the previous remote/local file first.
+    const existingForSlot = await prisma.installationEvidence.findMany({
+      where: {
+        masterId: data.masterId,
+        childDeviceId: data.childDeviceId ?? null,
+        category: data.category,
+      },
+    });
+    for (const old of existingForSlot) {
+      await deleteEvidenceFile(old.imageUrl);
+    }
+    if (existingForSlot.length > 0) {
+      await prisma.installationEvidence.deleteMany({
+        where: {
+          masterId: data.masterId,
+          childDeviceId: data.childDeviceId ?? null,
+          category: data.category,
+        },
+      });
+    }
+
     const evidence = await prisma.installationEvidence.create({
       data: {
         category: data.category,
@@ -127,11 +187,47 @@ router.post('/', authenticate, async (req: any, res, next) => {
         longitude: data.longitude,
         userId: req.user.id,
         masterId: data.masterId,
-        childDeviceId: data.childDeviceId,
+        childDeviceId: data.childDeviceId ?? null,
       },
     });
 
     res.status(201).json(evidence);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete a single evidence record
+router.delete('/:id', authenticate, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid evidence ID' });
+
+    const evidence = await prisma.installationEvidence.findUnique({ where: { id } });
+    if (!evidence) return res.status(404).json({ error: 'Evidence not found' });
+
+    await deleteEvidenceFile(evidence.imageUrl);
+    await prisma.installationEvidence.delete({ where: { id } });
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Alias for clients or firewalls that disallow HTTP DELETE
+router.post('/:id/delete', authenticate, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid evidence ID' });
+
+    const evidence = await prisma.installationEvidence.findUnique({ where: { id } });
+    if (!evidence) return res.status(404).json({ error: 'Evidence not found' });
+
+    await deleteEvidenceFile(evidence.imageUrl);
+    await prisma.installationEvidence.delete({ where: { id } });
+
+    res.status(200).json({ success: true });
   } catch (error) {
     next(error);
   }

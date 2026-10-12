@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
+import { RAILWAY_DATA, RAILWAY_ZONES, divisionsForZone } from '../lib/railwayData';
 
 const router = Router();
 
@@ -9,8 +10,24 @@ const createGateSchema = z.object({
   name: z.string().optional(),
   lcNumberDigits: z.string().regex(/^\d{4}$/, "Must be exactly 4 digits"),
   locationName: z.string().min(1),
+  zone: z.string().min(1),
+  division: z.string().min(1),
   latitude: z.number().optional(),
   longitude: z.number().optional(),
+});
+
+// Zone/Division reference data (shared source of truth for web + mobile)
+router.get('/reference-data', authenticate, async (_req, res) => {
+  res.json({
+    zones: RAILWAY_ZONES,
+    divisionsByZone: RAILWAY_DATA,
+  });
+});
+
+// Divisions for a zone (convenience; case-insensitive)
+router.get('/divisions', authenticate, async (req, res) => {
+  const zone = typeof req.query.zone === 'string' ? req.query.zone : '';
+  res.json({ zone, divisions: divisionsForZone(zone) });
 });
 
 // Create a new LC Gate
@@ -30,6 +47,8 @@ router.post('/', authenticate, async (req, res, next) => {
         name: data.name,
         lcNumber,
         locationName: data.locationName,
+        zone: data.zone,
+        division: data.division,
         latitude: data.latitude,
         longitude: data.longitude,
       },
@@ -210,20 +229,8 @@ router.post('/masters/:masterId/devices', authenticate, async (req, res, next) =
   }
 });
 
-// Delete an LC Gate (cascades)
-router.delete('/:id', authenticate, async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: 'Invalid gate ID' });
-    
-    await prisma.lCGate.delete({ where: { id } });
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
-
 // Delete a Master Unit (cascades to devices and evidences)
+// NOTE: must be declared BEFORE '/:id' so '/masters/:id' is not matched as a gate id.
 router.delete('/masters/:id', authenticate, async (req, res, next) => {
   try {
     const id = parseInt(req.params.id);
@@ -243,6 +250,19 @@ router.delete('/devices/:id', authenticate, async (req, res, next) => {
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid device ID' });
     
     await prisma.childDevice.delete({ where: { id } });
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete an LC Gate (cascades) - declared last so it doesn't shadow the paths above.
+router.delete('/:id', authenticate, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid gate ID' });
+    
+    await prisma.lCGate.delete({ where: { id } });
     res.status(204).send();
   } catch (error) {
     next(error);

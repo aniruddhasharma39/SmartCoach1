@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
+import '../../config.dart';
+import 'railway_data.dart';
 
 class CreateGateScreen extends StatefulWidget {
   final String token;
@@ -17,9 +19,52 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
   final _lcNumberCtrl = TextEditingController();
   final _latCtrl = TextEditingController();
   final _lngCtrl = TextEditingController();
-  
+
+  List<String> _zones = RailwayData.zones;
+  Map<String, List<String>> _divisionsByZone = RailwayData.data;
+  String? _zone;
+  String? _division;
+  bool _loadingReference = true;
+
   bool _isLoading = false;
   bool _isFetchingLocation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchReferenceData();
+  }
+
+  Future<void> _fetchReferenceData() async {
+    setState(() => _loadingReference = true);
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/lcgate/reference-data'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        if (data is Map) {
+          final zones = (data['zones'] as List?)?.whereType<String>().toList() ?? [];
+          final divisionsRaw = data['divisionsByZone'];
+          if (zones.isNotEmpty) {
+            setState(() {
+              _zones = zones;
+              if (divisionsRaw is Map) {
+                _divisionsByZone = divisionsRaw.map(
+                  (k, v) => MapEntry(k.toString(), (v as List).whereType<String>().toList()),
+                );
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error fetching zone/division reference data: $e');
+    } finally {
+      if (mounted) setState(() => _loadingReference = false);
+    }
+  }
 
   Future<void> _getCurrentLocation() async {
     setState(() => _isFetchingLocation = true);
@@ -54,22 +99,40 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location Name is required')));
       return;
     }
+    if (_zone == null || _zone!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a Railway Zone')));
+      return;
+    }
+    if (_division == null || _division!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a Division')));
+      return;
+    }
+    if (_lcNumberCtrl.text.trim().length != 4) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('LC Number must be exactly 4 digits')));
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
+      final lat = double.tryParse(_latCtrl.text);
+      final lng = double.tryParse(_lngCtrl.text);
+      final body = <String, dynamic>{
+        'locationName': _locationNameCtrl.text,
+        'name': _nameCtrl.text.isNotEmpty ? _nameCtrl.text : null,
+        'lcNumberDigits': _lcNumberCtrl.text,
+        'zone': _zone,
+        'division': _division,
+      };
+      if (lat != null) body['latitude'] = lat;
+      if (lng != null) body['longitude'] = lng;
+
       final res = await http.post(
-        Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate'),
+        Uri.parse('$baseUrl/lcgate'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${widget.token}',
         },
-        body: json.encode({
-          'locationName': _locationNameCtrl.text,
-          'name': _nameCtrl.text.isNotEmpty ? _nameCtrl.text : null,
-          'lcNumberDigits': _lcNumberCtrl.text,
-          'latitude': double.tryParse(_latCtrl.text),
-          'longitude': double.tryParse(_lngCtrl.text),
-        }),
+        body: json.encode(body),
       );
 
       if (res.statusCode == 201) {
@@ -86,6 +149,8 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final divisions = _zone != null ? (_divisionsByZone[_zone] ?? <String>[]) : <String>[];
+
     return Scaffold(
       appBar: AppBar(title: const Text('Create LC Gate'), elevation: 0),
       body: Container(
@@ -107,6 +172,36 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
                 children: [
                   const Text('Gate Information', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 20),
+                  DropdownButtonFormField<String>(
+                    value: _zone,
+                    decoration: InputDecoration(
+                      labelText: 'Railway Zone *',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.map),
+                    ),
+                    items: _zones.map((z) => DropdownMenuItem(value: z, child: Text(z, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: _loadingReference ? null : (val) {
+                      setState(() {
+                        _zone = val;
+                        _division = null; // Reset division when zone changes
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    value: _division,
+                    decoration: InputDecoration(
+                      labelText: 'Division *',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      prefixIcon: const Icon(Icons.account_tree),
+                    ),
+                    items: divisions.map((d) => DropdownMenuItem(value: d, child: Text(d, overflow: TextOverflow.ellipsis))).toList(),
+                    onChanged: (_zone == null) ? null : (val) {
+                      setState(() => _division = val);
+                    },
+                    hint: Text(_zone == null ? 'Select Zone first…' : 'Select Division…'),
+                  ),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: _locationNameCtrl, 
                     decoration: InputDecoration(

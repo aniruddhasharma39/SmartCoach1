@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'create_master_screen.dart';
 import 'evidence_checklist_screen.dart';
+import '../../config.dart';
 
 class GateDetailScreen extends StatefulWidget {
   final String token;
@@ -26,7 +27,7 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
 
   Future<void> _refresh() async {
     final res = await http.get(
-      Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate'),
+      Uri.parse('$baseUrl/lcgate'),
       headers: {'Authorization': 'Bearer ${widget.token}'},
     );
     if (res.statusCode == 200) {
@@ -71,7 +72,7 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
     setState(() => _isLoading = true);
     try {
       final res = await http.delete(
-        Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/masters/${master['id']}'),
+        Uri.parse('$baseUrl/lcgate/masters/${master['id']}'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       );
       if (res.statusCode == 204) await _refresh();
@@ -104,7 +105,7 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
     setState(() => _isLoading = true);
     try {
       final res = await http.delete(
-        Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/devices/${device['id']}'),
+        Uri.parse('$baseUrl/lcgate/devices/${device['id']}'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       );
       if (res.statusCode == 204) await _refresh();
@@ -122,7 +123,7 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
     Future<void> fetchSeq(String type, void Function(void Function()) setDialogState) async {
       try {
         final res = await http.get(
-          Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/masters/${master['id']}/next-device-sequence?type=$type'),
+          Uri.parse('$baseUrl/lcgate/masters/${master['id']}/next-device-sequence?type=$type'),
           headers: {'Authorization': 'Bearer ${widget.token}'},
         );
         if (res.statusCode == 200) {
@@ -137,7 +138,7 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
     // Fetch initial sequence
     try {
       final res = await http.get(
-        Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/masters/${master['id']}/next-device-sequence?type=$selectedType'),
+        Uri.parse('$baseUrl/lcgate/masters/${master['id']}/next-device-sequence?type=$selectedType'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       );
       if (res.statusCode == 200) {
@@ -206,7 +207,7 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
       setState(() => _isLoading = true);
       try {
         final res = await http.post(
-          Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/masters/${master['id']}/devices'),
+          Uri.parse('$baseUrl/lcgate/masters/${master['id']}/devices'),
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ${widget.token}',

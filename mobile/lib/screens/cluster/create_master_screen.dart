@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../../config.dart';
 
 class CreateMasterScreen extends StatefulWidget {
   final String token;
@@ -26,7 +27,7 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
   Future<void> _fetchSequence() async {
     try {
       final res = await http.get(
-        Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/${widget.gate['id']}/next-master-sequence'),
+        Uri.parse('$baseUrl/lcgate/${widget.gate['id']}/next-master-sequence'),
         headers: {'Authorization': 'Bearer ${widget.token}'},
       );
       if (res.statusCode == 200) {
@@ -46,7 +47,7 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
 
     try {
       final res = await http.post(
-        Uri.parse('https://lc-platform.onrender.com/api/v1/lcgate/${widget.gate['id']}/masters'),
+        Uri.parse('$baseUrl/lcgate/${widget.gate['id']}/masters'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${widget.token}',

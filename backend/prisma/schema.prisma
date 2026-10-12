@@ -110,6 +110,8 @@ model LCGate {
   name         String?
   lcNumber     String       @unique
   locationName String
+  zone         String?
+  division     String?
   latitude     Float?
   longitude    Float?
   createdAt    DateTime     @default(now())

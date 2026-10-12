@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'upload_evidence_screen.dart';
+import '../../config.dart';
 
 class EvidenceChecklistScreen extends StatefulWidget {
   final String token;
@@ -24,10 +27,125 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
     return evidences.any((e) => e['category'] == category && e['childDeviceId'] == childId);
   }
 
+  Map? _findEvidence(String category, [int? childId]) {
+    for (final e in evidences) {
+      if (e['category'] == category && e['childDeviceId'] == childId) return e;
+    }
+    return null;
+  }
+
+  String _fullImageUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final base = baseUrl; // https://<host>/api/v1
+    final host = base.endsWith('/api/v1')
+        ? base.substring(0, base.length - '/api/v1'.length)
+        : base;
+    return '$host$url';
+  }
+
   void _onUploadSuccess(Map newEvidence) {
     setState(() {
-      evidences.add(newEvidence);
+      // Replace the existing evidence for the same slot (re-upload), or add it.
+      final index = evidences.indexWhere((e) =>
+          e['category'] == newEvidence['category'] &&
+          e['childDeviceId'] == newEvidence['childDeviceId']);
+      if (index >= 0) {
+        evidences[index] = newEvidence;
+      } else {
+        evidences.add(newEvidence);
+      }
     });
+  }
+
+  Future<void> _deleteEvidence(Map evidence) async {
+    bool confirm = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Photo?'),
+        content: const Text('Are you sure you want to delete this uploaded photo? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    ) ?? false;
+
+    if (!confirm) return;
+    try {
+      final res = await http.delete(
+        Uri.parse('$baseUrl/evidence/${evidence['id']}'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+      if (res.statusCode == 204 || res.statusCode == 200) {
+        setState(() {
+          evidences.removeWhere((e) => e['id'] == evidence['id']);
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Photo deleted successfully')),
+          );
+        }
+      } else {
+        String msg = res.body;
+        if (res.statusCode == 404 || msg.contains('Cannot DELETE')) {
+          msg = 'Server route not found (404). The backend on Render does not have the DELETE endpoint deployed yet.';
+        }
+        throw Exception(msg);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  void _viewPhoto(Map evidence) {
+    final url = _fullImageUrl(evidence['imageUrl'] ?? '');
+    if (url.isEmpty) return;
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 4,
+              child: Center(
+                child: Image.network(url, fit: BoxFit.contain),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _navigateToUpload(String category, String name, [int? childId]) async {
+    final result = await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => UploadEvidenceScreen(
+        token: widget.token,
+        masterId: widget.master['id'],
+        childDeviceId: childId,
+        category: category,
+        targetName: name,
+      )
+    ));
+    if (result != null && result is Map) {
+      _onUploadSuccess(result);
+    }
   }
 
   @override
@@ -50,6 +168,7 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
             title: 'Master Unit (ESP)',
             description: 'Photo showing the ESP installation',
             isDone: hasMaster,
+            evidence: _findEvidence('MASTER'),
             onUpload: () => _navigateToUpload('MASTER', 'Master ESP'),
           ),
           
@@ -57,6 +176,7 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
             title: '${widget.master['powerSource'] == 'SOLAR' ? 'Solar Panel' : 'Direct Power'} Source',
             description: 'Photo verifying the power installation',
             isDone: hasPower,
+            evidence: _findEvidence('POWER_SOURCE'),
             onUpload: () => _navigateToUpload('POWER_SOURCE', 'Power Source'),
           ),
 
@@ -66,6 +186,7 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
               title: 'Slave ${dev['type']}',
               description: dev['type'] == 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor',
               isDone: hasDev,
+              evidence: _findEvidence(dev['type'], dev['id']),
               onUpload: () => _navigateToUpload(dev['type'], 'Slave ${dev['type']}', dev['id']),
             );
           }),
@@ -74,7 +195,13 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
     );
   }
 
-  Widget _buildChecklistItem({required String title, required String description, required bool isDone, required VoidCallback onUpload}) {
+  Widget _buildChecklistItem({
+    required String title,
+    required String description,
+    required bool isDone,
+    required Map? evidence,
+    required VoidCallback onUpload,
+  }) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
@@ -87,8 +214,27 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
         leading: Icon(isDone ? Icons.check_circle : Icons.camera_alt, color: isDone ? Colors.green : Colors.blue, size: 32),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(description),
-        trailing: isDone 
-          ? const Chip(label: Text('Verified', style: TextStyle(color: Colors.white, fontSize: 12)), backgroundColor: Colors.green)
+        trailing: isDone
+          ? Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.visibility_outlined, color: Color(0xFF0B3C7A)),
+                  tooltip: 'View Photo',
+                  onPressed: () => _viewPhoto(evidence!),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Color(0xFF0E9AA7)),
+                  tooltip: 'Re-upload',
+                  onPressed: onUpload,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  tooltip: 'Delete Photo',
+                  onPressed: () => _deleteEvidence(evidence!),
+                ),
+              ],
+            )
           : ElevatedButton(
               onPressed: onUpload,
               style: ElevatedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
@@ -96,20 +242,5 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
             ),
       ),
     );
-  }
-
-  void _navigateToUpload(String category, String name, [int? childId]) async {
-    final result = await Navigator.push(context, MaterialPageRoute(
-      builder: (_) => UploadEvidenceScreen(
-        token: widget.token,
-        masterId: widget.master['id'],
-        childDeviceId: childId,
-        category: category,
-        targetName: name,
-      )
-    ));
-    if (result != null && result is Map) {
-      _onUploadSuccess(result);
-    }
   }
 }

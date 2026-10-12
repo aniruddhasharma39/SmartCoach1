@@ -1,11 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { User } from '../../types';
 import './ClusterDashboard.css';
 import { API_URL } from '../../config';
+import { RAILWAY_ZONES, RAILWAY_DATA } from './railwayData';
 
 type Props = {
   user: User;
 };
+
+const authHeaders = () => ({ 'Authorization': `Bearer ${localStorage.getItem('token')}` });
+
+const getFullImageUrl = (url?: string) => {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `${API_URL}${url}`;
+};
+
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'name_asc', label: 'Gate Name (A–Z)' },
+  { value: 'name_desc', label: 'Gate Name (Z–A)' },
+  { value: 'lc_asc', label: 'LC Number (Ascending)' },
+  { value: 'zone_asc', label: 'Zone (A–Z)' },
+  { value: 'location_asc', label: 'Location (A–Z)' },
+];
 
 export default function ClusterDashboard(_props: Props) {
   const [gates, setGates] = useState<any[]>([]);
@@ -13,15 +31,40 @@ export default function ClusterDashboard(_props: Props) {
   const [view, setView] = useState<'list' | 'create_gate' | 'gate_detail'>('list');
   const [selectedGate, setSelectedGate] = useState<any>(null);
 
+  // Zone/Division reference data (API first, constant fallback)
+  const [refZones, setRefZones] = useState<string[]>(RAILWAY_ZONES);
+  const [refDivisions, setRefDivisions] = useState<Record<string, string[]>>(RAILWAY_DATA);
+
+  // Filters & sort
+  const [filterZone, setFilterZone] = useState('');
+  const [filterDivision, setFilterDivision] = useState('');
+  const [filterLocation, setFilterLocation] = useState('');
+  const [filterName, setFilterName] = useState('');
+  const [filterLc, setFilterLc] = useState('');
+  const [sortBy, setSortBy] = useState('newest');
+
   // Modals
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  const fetchReferenceData = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/lcgate/reference-data`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.zones) && data.zones.length > 0) setRefZones(data.zones);
+        if (data.divisionsByZone && Object.keys(data.divisionsByZone).length > 0) setRefDivisions(data.divisionsByZone);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch zone/division reference data', e);
+    }
+  };
 
   const fetchGates = async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: authHeaders()
       });
       if (res.ok) {
         const data = await res.json();
@@ -39,7 +82,46 @@ export default function ClusterDashboard(_props: Props) {
 
   useEffect(() => {
     fetchGates();
+    fetchReferenceData();
   }, []);
+
+  const divisionOptions = useMemo(() => {
+    if (filterZone) return refDivisions[filterZone] || [];
+    const all = Object.values(refDivisions).flat();
+    return [...new Set(all)];
+  }, [filterZone, refDivisions]);
+
+  const visibleGates = useMemo(() => {
+    const filtered = gates.filter((g) => {
+      const zoneMatch = !filterZone || (g.zone || '').toLowerCase() === filterZone.toLowerCase();
+      const divisionMatch = !filterDivision || (g.division || '').toLowerCase() === filterDivision.toLowerCase();
+      const locMatch = !filterLocation || (g.locationName || '').toLowerCase().includes(filterLocation.toLowerCase());
+      const nameMatch = !filterName || (g.name || '').toLowerCase().includes(filterName.toLowerCase());
+      const lcMatch = !filterLc || (g.lcNumber || '').toLowerCase().includes(filterLc.toLowerCase());
+      return zoneMatch && divisionMatch && locMatch && nameMatch && lcMatch;
+    });
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case 'name_asc': sorted.sort((a, b) => (a.name || '').localeCompare(b.name || '')); break;
+      case 'name_desc': sorted.sort((a, b) => (b.name || '').localeCompare(a.name || '')); break;
+      case 'lc_asc': sorted.sort((a, b) => (a.lcNumber || '').localeCompare(b.lcNumber || '', undefined, { numeric: true })); break;
+      case 'zone_asc': sorted.sort((a, b) => (a.zone || '').localeCompare(b.zone || '')); break;
+      case 'location_asc': sorted.sort((a, b) => (a.locationName || '').localeCompare(b.locationName || '')); break;
+      default: sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
+    return sorted;
+  }, [gates, filterZone, filterDivision, filterLocation, filterName, filterLc, sortBy]);
+
+  const resetFilters = () => {
+    setFilterZone('');
+    setFilterDivision('');
+    setFilterLocation('');
+    setFilterName('');
+    setFilterLc('');
+    setSortBy('newest');
+  };
+
+  const hasActiveFilters = filterZone || filterDivision || filterLocation || filterName || filterLc || sortBy !== 'newest';
 
   const handleDeleteGate = async () => {
     if (deleteConfirmText !== selectedGate.name && deleteConfirmText !== selectedGate.lcNumber) {
@@ -49,7 +131,7 @@ export default function ClusterDashboard(_props: Props) {
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate/${selectedGate.id}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: authHeaders()
       });
       if (res.ok) {
         setShowDeleteModal(false);
@@ -67,14 +149,56 @@ export default function ClusterDashboard(_props: Props) {
     <div className="cluster-container fade-in">
       {view === 'list' && (
         <div className="gate-list-view">
-          <div className="flex justify-between items-center mb-6">
+          <div className="cluster-toolbar glass-card">
+            <div className="filter-grid">
+              <div className="form-group">
+                <label>Zone</label>
+                <select className="glass-input" value={filterZone} onChange={(e) => { setFilterZone(e.target.value); setFilterDivision(''); }}>
+                  <option value="">All Zones</option>
+                  {refZones.map((z) => <option key={z} value={z}>{z}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Division</label>
+                <select className="glass-input" value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)}>
+                  <option value="">All Divisions</option>
+                  {divisionOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Location</label>
+                <input className="glass-input" type="text" placeholder="Search location…" value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Gate Name</label>
+                <input className="glass-input" type="text" placeholder="Search gate name…" value={filterName} onChange={(e) => setFilterName(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>LC Number</label>
+                <input className="glass-input" type="text" placeholder="e.g. LC-0001" value={filterLc} onChange={(e) => setFilterLc(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label>Sort By</label>
+                <select className="glass-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                  {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            </div>
+            {hasActiveFilters && (
+              <div className="toolbar-actions">
+                <button className="btn-small btn-outline" onClick={resetFilters}>✕ Clear Filters</button>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-between items-center mb-6" style={{ marginTop: '24px' }}>
             <h2 className="title-gradient">LC Gate Clusters</h2>
             <button className="btn-primary flex items-center gap-2 pulse-hover" onClick={() => setView('create_gate')}>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14m-7-7h14"/></svg>
               Create New Gate
             </button>
           </div>
-          
+
           {loading ? (
             <div className="spinner-container"><div className="spinner"></div></div>
           ) : gates.length === 0 ? (
@@ -83,14 +207,25 @@ export default function ClusterDashboard(_props: Props) {
               <h3>No Gates Found</h3>
               <p>Get started by creating your first Level Crossing Gate.</p>
             </div>
+          ) : visibleGates.length === 0 ? (
+            <div className="empty-state glass-card">
+              <div className="empty-icon">🔍</div>
+              <h3>No Matching Gates</h3>
+              <p>No gates match the current filters. Try clearing or relaxing them.</p>
+              <button className="btn-small btn-outline mt-3" onClick={resetFilters}>Clear Filters</button>
+            </div>
           ) : (
             <div className="grid">
-              {gates.map(gate => (
+              {visibleGates.map(gate => (
                 <div key={gate.id} className="gate-card glass-card hover-lift" onClick={() => { setSelectedGate(gate); setView('gate_detail'); }} style={{ padding: '24px', cursor: 'pointer' }}>
                   <div className="gate-header flex justify-between items-start" style={{ marginBottom: '28px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
                       <h3 className="m-0" style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text-main)', lineHeight: '1.2' }}>{gate.name || 'Unnamed Gate'}</h3>
                       <span className="badge badge-blue" style={{ fontSize: '0.85rem', padding: '6px 12px', letterSpacing: '0.5px' }}>{gate.lcNumber || 'No LC#'}</span>
+                      <div className="flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+                        {gate.zone && <span className="badge badge-indigo" style={{ fontSize: '0.75rem', padding: '4px 10px' }}>{gate.zone}</span>}
+                        {gate.division && <span className="badge" style={{ fontSize: '0.75rem', padding: '4px 10px', backgroundColor: 'rgba(14, 154, 167, 0.1)', color: '#0e9aa7', fontWeight: 600 }}>{gate.division}</span>}
+                      </div>
                     </div>
                     <button 
                       className="transition flex items-center justify-center rounded-full hover-lift"
@@ -136,6 +271,8 @@ export default function ClusterDashboard(_props: Props) {
 
       {view === 'create_gate' && (
         <CreateGateForm 
+          zones={refZones}
+          divisionsByZone={refDivisions}
           onCancel={() => setView('list')} 
           onSuccess={() => { setView('list'); fetchGates(); }} 
         />
@@ -182,14 +319,19 @@ export default function ClusterDashboard(_props: Props) {
   );
 }
 
-function CreateGateForm({ onCancel, onSuccess }: any) {
+function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
   const [name, setName] = useState('');
   const [lcNumberDigits, setLcNumberDigits] = useState('');
   const [locationName, setLocationName] = useState('');
+  const [zone, setZone] = useState('');
+  const [division, setDivision] = useState('');
   const [lat, setLat] = useState('');
   const [lng, setLng] = useState('');
   const [gettingLocation, setGettingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  const currentDivisions = zone ? (divisionsByZone[zone] || []) : [];
+  const canSubmit = locationName.trim() && zone && division && lcNumberDigits;
 
   const handleGetLocation = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -227,6 +369,8 @@ function CreateGateForm({ onCancel, onSuccess }: any) {
           name: name || undefined,
           lcNumberDigits,
           locationName,
+          zone,
+          division,
           latitude: lat ? parseFloat(lat) : undefined,
           longitude: lng ? parseFloat(lng) : undefined
         })
@@ -252,6 +396,20 @@ function CreateGateForm({ onCancel, onSuccess }: any) {
       </div>
       
       <form onSubmit={handleSubmit} className="flex-col gap-4">
+        <div className="form-group">
+          <label>Railway Zone *</label>
+          <select className="glass-input" required value={zone} onChange={(e) => { setZone(e.target.value); setDivision(''); }}>
+            <option value="">Select Zone…</option>
+            {(zones || []).map((z: string) => <option key={z} value={z}>{z}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label>Division *</label>
+          <select className="glass-input" required disabled={!zone} value={division} onChange={(e) => setDivision(e.target.value)}>
+            <option value="">{zone ? 'Select Division…' : 'Select Zone first…'}</option>
+            {currentDivisions.map((d: string) => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </div>
         <div className="form-group">
           <label>Gate Name (Optional)</label>
           <input className="glass-input" type="text" placeholder="e.g. North Gate" value={name} onChange={e => setName(e.target.value)} />
@@ -291,7 +449,7 @@ function CreateGateForm({ onCancel, onSuccess }: any) {
           </div>
         </div>
 
-        <button type="submit" className="btn-primary w-full mt-4 py-3 text-lg" disabled={submitting}>
+        <button type="submit" className="btn-primary w-full mt-4 py-3 text-lg" disabled={submitting || !canSubmit}>
           {submitting ? 'Creating...' : 'Create Gate'}
         </button>
       </form>
@@ -311,7 +469,7 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate/masters/${masterId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: authHeaders()
       });
       if (res.ok) {
         setMasterToDelete(null);
@@ -330,7 +488,7 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate/devices/${deviceId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        headers: authHeaders()
       });
       if (res.ok) {
         onUpdate();
@@ -340,7 +498,7 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
     } catch (e) {
       console.error(e);
     }
-  }; // For centralized evidence upload
+  };
 
   return (
     <div className="slide-up">
@@ -358,9 +516,13 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
             <h2 className="m-0" style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-main)' }}>
               {gate.name || 'Unnamed Gate'}
             </h2>
-            {gate.lcNumber && (
-              <div className="badge badge-indigo mt-2 inline-block" style={{ fontSize: '0.9rem', padding: '6px 12px', fontWeight: 600 }}>{gate.lcNumber}</div>
-            )}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {gate.lcNumber && (
+                <div className="badge badge-indigo" style={{ fontSize: '0.9rem', padding: '6px 12px', fontWeight: 600 }}>{gate.lcNumber}</div>
+              )}
+              {gate.zone && <div className="badge badge-blue" style={{ fontSize: '0.85rem', padding: '6px 12px', fontWeight: 600 }}>{gate.zone}</div>}
+              {gate.division && <div className="badge" style={{ fontSize: '0.85rem', padding: '6px 12px', fontWeight: 600, backgroundColor: 'rgba(14, 154, 167, 0.1)', color: '#0e9aa7' }}>{gate.division}</div>}
+            </div>
           </div>
         </div>
       </div>
@@ -521,7 +683,7 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
 
   useEffect(() => {
     fetch(`${API_URL}/api/v1/lcgate/${gate.id}/next-master-sequence`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
       .then(r => r.json())
       .then(data => {
@@ -538,7 +700,7 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          ...authHeaders()
         },
         body: JSON.stringify({ masterSequence: parseInt(masterSequence, 10), powerSource })
       });
@@ -600,7 +762,7 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
     let isMounted = true;
     setLoadingSequence(true);
     fetch(`${API_URL}/api/v1/lcgate/masters/${master.id}/next-device-sequence?type=${type}`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      headers: authHeaders()
     })
       .then(r => r.json())
       .then(data => {
@@ -624,7 +786,7 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          ...authHeaders()
         },
         body: JSON.stringify({ type, deviceSequence: parseInt(deviceSequence, 10) })
       });
@@ -678,10 +840,30 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
   );
 }
 
+/**
+ * Self-contained evidence checklist for a single Master Unit.
+ * Maintains its own evidence list so View / Re-upload / Delete update the UI
+ * immediately without needing the parent's gate object to refresh.
+ */
 function CentralizedEvidenceUpload({ master, onClose }: any) {
-  const evidences = master.evidences || [];
-  const masterEv = evidences.find((e: any) => e.category === 'MASTER');
-  const powerEv = evidences.find((e: any) => e.category === 'POWER_SOURCE');
+  const [evidenceList, setEvidenceList] = useState<any[]>(master.evidences || []);
+
+  const findEv = (category: string, childDeviceId?: number | null) =>
+    evidenceList.find((e: any) => e.category === category && (e.childDeviceId ?? null) === (childDeviceId ?? null));
+
+  const handleUploaded = (saved: any) => {
+    setEvidenceList((prev) => {
+      const others = prev.filter((e: any) => !(e.category === saved.category && (e.childDeviceId ?? null) === (saved.childDeviceId ?? null)));
+      return [...others, saved];
+    });
+  };
+
+  const handleDeleted = (id: number) => {
+    setEvidenceList((prev) => prev.filter((e: any) => e.id !== id));
+  };
+
+  const masterEv = findEv('MASTER');
+  const powerEv = findEv('POWER_SOURCE');
 
   return (
     <div className="glass-card slide-up">
@@ -693,51 +875,47 @@ function CentralizedEvidenceUpload({ master, onClose }: any) {
       <p className="text-muted mb-6">Upload photographic evidence for all components of Master {master.serialNumber}. Photos will be securely geo-stamped.</p>
 
       <div className="evidence-list grid gap-4">
-        {/* Master ESP */}
         <EvidenceItem 
           title="Master Unit (ESP)" 
           description="Photo showing the ESP installation"
-          isDone={!!masterEv}
-          evidenceData={masterEv}
+          evidence={masterEv}
           masterId={master.id}
           category="MASTER"
+          onUploaded={handleUploaded}
+          onDeleted={handleDeleted}
         />
 
-        {/* Power Source */}
         <EvidenceItem 
           title={`${master.powerSource === 'SOLAR' ? 'Solar Panel' : 'Direct Power'} Source`}
           description={`Photo verifying the ${master.powerSource} installation`}
-          isDone={!!powerEv}
-          evidenceData={powerEv}
+          evidence={powerEv}
           masterId={master.id}
           category="POWER_SOURCE"
+          onUploaded={handleUploaded}
+          onDeleted={handleDeleted}
         />
 
-        {/* Child Devices */}
-        {master.childDevices?.map((dev: any) => {
-          const devEv = evidences.find((e: any) => e.category === dev.type && e.childDeviceId === dev.id);
-          return (
-            <EvidenceItem 
-              key={dev.id}
-              title={`Slave ${dev.type}`} 
-              description={dev.type === 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor'}
-              isDone={!!devEv}
-              evidenceData={devEv}
-              masterId={master.id}
-              childDeviceId={dev.id}
-              category={dev.type}
-            />
-          );
-        })}
+        {master.childDevices?.map((dev: any) => (
+          <EvidenceItem 
+            key={dev.id}
+            title={`Slave ${dev.type}`} 
+            description={dev.type === 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor'}
+            evidence={findEv(dev.type, dev.id)}
+            masterId={master.id}
+            childDeviceId={dev.id}
+            category={dev.type}
+            onUploaded={handleUploaded}
+            onDeleted={handleDeleted}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function EvidenceItem({ title, description, isDone, evidenceData, masterId, childDeviceId, category }: any) {
+function EvidenceItem({ title, description, evidence, masterId, childDeviceId, category, onUploaded, onDeleted }: any) {
   const [uploading, setUploading] = useState(false);
-  const [doneStatus, setDoneStatus] = useState(isDone);
-  const [evidenceObj, setEvidenceObj] = useState(evidenceData);
+  const [deleting, setDeleting] = useState(false);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -769,8 +947,7 @@ function EvidenceItem({ title, description, isDone, evidenceData, masterId, chil
 
             if (res.ok) {
               const saved = await res.json();
-              setEvidenceObj(saved);
-              setDoneStatus(true);
+              onUploaded(saved);
             } else {
               const err = await res.json().catch(() => ({}));
               alert(err.message || err.error || 'Upload failed');
@@ -805,41 +982,71 @@ function EvidenceItem({ title, description, isDone, evidenceData, masterId, chil
     }
   };
 
-  const getFullImageUrl = (url?: string) => {
-    if (!url) return '';
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    return `${API_URL}${url}`;
+  const handleDelete = async () => {
+    if (!evidence) return;
+    if (!window.confirm(`Delete the uploaded photo for "${title}"? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/evidence/${evidence.id}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (res.ok) onDeleted(evidence.id);
+      else alert('Failed to delete evidence');
+    } catch (err) {
+      console.error(err);
+      alert('Delete failed');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
-    <div className={`evidence-item flex justify-between items-center p-4 rounded-xl transition-all ${doneStatus ? 'bg-green-900 bg-opacity-20 border border-green-500' : 'glass-panel'}`}>
+    <div className={`evidence-item flex justify-between items-center p-4 rounded-xl transition-all ${evidence ? 'bg-green-900 bg-opacity-20 border border-green-500' : 'glass-panel'}`}>
       <div>
         <h4 className="m-0 text-lg flex items-center gap-2">
-          {doneStatus ? <span className="text-green-500">✅</span> : <span>📷</span>}
+          <span>📷</span>
           {title}
         </h4>
         <p className="text-sm text-muted m-0 mt-1">{description}</p>
       </div>
       <div className="flex items-center gap-3">
-        {doneStatus ? (
+        {uploading ? (
+          <div className="flex flex-col gap-1 items-end" style={{ minWidth: '130px' }}>
+            <div style={{ width: '100%', height: '6px', background: 'rgba(59, 130, 246, 0.2)', borderRadius: '4px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: '100%', background: '#3b82f6', animation: 'pulse 1.2s infinite' }} />
+            </div>
+            <span style={{ fontSize: '0.75rem', color: '#60a5fa' }}>Uploading…</span>
+          </div>
+        ) : evidence ? (
           <>
-            {evidenceObj?.imageUrl && (
-              <a 
-                href={getFullImageUrl(evidenceObj.imageUrl)} 
-                target="_blank" 
-                rel="noreferrer" 
-                className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
-                style={{ textDecoration: 'none' }}
-              >
-                🔍 View Photo
-              </a>
-            )}
-            <span className="badge" style={{backgroundColor: 'var(--success)'}}>Verified</span>
+            <a 
+              href={getFullImageUrl(evidence?.imageUrl)} 
+              target="_blank" 
+              rel="noreferrer" 
+              className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
+              style={{ textDecoration: 'none' }}
+            >
+              🔍 View
+            </a>
+            <label className="btn-small btn-outline cursor-pointer flex items-center gap-1" style={{ cursor: 'pointer', fontSize: '0.75rem', padding: '4px 10px' }}>
+              ↻ Re-upload
+              <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFileChange} />
+            </label>
+            <button 
+              className="btn-small btn-outline flex items-center gap-1"
+              style={{ color: '#ef4444', borderColor: '#ef4444', fontSize: '0.75rem', padding: '4px 10px', cursor: 'pointer' }}
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Delete Photo"
+            >
+              {deleting ? '…' : '🗑 Delete'}
+            </button>
           </>
         ) : (
-          <label className={`btn-primary cursor-pointer ${uploading ? 'opacity-50' : ''}`}>
-            {uploading ? 'Processing...' : 'Upload'}
-            <input type="file" accept="image/*" capture="environment" style={{display: 'none'}} onChange={handleFileChange} disabled={uploading}/>
+          <label className="btn-primary cursor-pointer">
+            Upload
+            <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFileChange} />
           </label>
         )}
       </div>
