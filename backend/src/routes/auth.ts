@@ -137,10 +137,10 @@ async function createSession(user: any) {
   const secret = process.env.JWT_SECRET || 'super-secret-jwt-key';
   const refreshSecret = process.env.JWT_REFRESH_SECRET || 'super-secret-refresh-key';
   
-  const token = jwt.sign({ userId: user.id }, secret, { expiresIn: '1h' });
-  const refreshToken = jwt.sign({ userId: user.id }, refreshSecret, { expiresIn: '7d' });
+  const token = jwt.sign({ userId: user.id }, secret, { expiresIn: '30d' });
+  const refreshToken = jwt.sign({ userId: user.id }, refreshSecret, { expiresIn: '90d' });
 
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
   await prisma.refreshToken.create({
     data: {
       token: refreshToken,
@@ -432,6 +432,61 @@ router.post('/otp/verify', async (req, res, next) => {
       ...session,
       message: newPassword ? 'Password reset successfully and logged in!' : 'Logged in successfully via OTP!'
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Refresh Token endpoint
+router.post('/refresh', async (req, res, next) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token required' });
+    }
+
+    const refreshSecret = process.env.JWT_REFRESH_SECRET || 'super-secret-refresh-key';
+    let decoded: any;
+    try {
+      decoded = jwt.verify(refreshToken, refreshSecret);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
+
+    const storedToken = await prisma.refreshToken.findUnique({
+      where: { token: refreshToken },
+      include: {
+        user: {
+          include: {
+            role: {
+              include: {
+                roleModules: {
+                  include: { module: true }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!storedToken || storedToken.expiresAt < new Date()) {
+      if (storedToken) {
+        await prisma.refreshToken.delete({ where: { id: storedToken.id } }).catch(() => {});
+      }
+      return res.status(401).json({ error: 'Refresh token expired or revoked' });
+    }
+
+    if (!storedToken.user || storedToken.user.status !== 'APPROVED') {
+      return res.status(401).json({ error: 'User is invalid or not approved' });
+    }
+
+    // Token rotation: delete used refresh token
+    await prisma.refreshToken.delete({ where: { id: storedToken.id } }).catch(() => {});
+
+    // Create a new session
+    const session = await createSession(storedToken.user);
+    res.json(session);
   } catch (error) {
     next(error);
   }

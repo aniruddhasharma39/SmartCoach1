@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'config.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
 
@@ -72,14 +74,54 @@ class _AuthWrapperState extends State<AuthWrapper> {
     final userStr = prefs.getString('user');
     
     if (token != null && userStr != null) {
+      try {
+        final res = await http.get(
+          Uri.parse('$baseUrl/auth/me'),
+          headers: {'Authorization': 'Bearer $token'},
+        ).timeout(const Duration(seconds: 8));
+
+        if (res.statusCode == 200) {
+          final serverUser = json.decode(res.body);
+          if (mounted) {
+            setState(() {
+              isAuthenticated = true;
+              user = serverUser is Map<String, dynamic> ? serverUser : json.decode(userStr);
+            });
+          }
+        } else if (res.statusCode == 401) {
+          // Token expired or invalid! Clear storage and show LoginScreen
+          await prefs.remove('token');
+          await prefs.remove('user');
+          if (mounted) {
+            setState(() {
+              isAuthenticated = false;
+              user = null;
+            });
+          }
+        } else {
+          // Temporary server error, keep cached session
+          if (mounted) {
+            setState(() {
+              isAuthenticated = true;
+              user = json.decode(userStr);
+            });
+          }
+        }
+      } catch (_) {
+        // Network offline or timeout, continue with cached session
+        if (mounted) {
+          setState(() {
+            isAuthenticated = true;
+            user = json.decode(userStr);
+          });
+        }
+      }
+    }
+    if (mounted) {
       setState(() {
-        isAuthenticated = true;
-        user = json.decode(userStr);
+        isLoading = false;
       });
     }
-    setState(() {
-      isLoading = false;
-    });
   }
 
   @override

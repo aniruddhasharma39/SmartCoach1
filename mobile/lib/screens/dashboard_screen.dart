@@ -81,6 +81,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             _unreadNotifsCount = rawCount is int ? rawCount : (int.tryParse(rawCount?.toString() ?? '0') ?? 0);
           });
         }
+      } else if (res.statusCode == 401) {
+        _notifsTimer?.cancel();
+        widget.onLogout();
       }
     } catch (_) {}
   }
@@ -550,6 +553,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final resRoles = results[1];
       final resMods = results[2];
       final resBranding = results[3];
+
+      if (resRoles.statusCode == 401 || resMods.statusCode == 401 || resUsers.statusCode == 401) {
+        _notifsTimer?.cancel();
+        widget.onLogout();
+        return;
+      }
 
       setState(() {
         try {

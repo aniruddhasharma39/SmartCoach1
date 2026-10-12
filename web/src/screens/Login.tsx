@@ -6,9 +6,10 @@ import { API_URL } from '../config';
 type Props = {
   onLogin: (user: User, token: string) => void;
   onGoToRegister: () => void;
+  sessionExpiredMsg?: string;
 };
 
-export default function Login({ onLogin, onGoToRegister }: Props) {
+export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Props) {
   // Mode: standard password login vs OTP login / recovery
   const [mode, setMode] = useState<'password' | 'otp'>('password');
 
@@ -246,6 +247,26 @@ export default function Login({ onLogin, onGoToRegister }: Props) {
               : 'Password Recovery & OTP Authentication'}
           </p>
         </div>
+
+        {sessionExpiredMsg && (
+          <div
+            className="mb-4 fade-in"
+            style={{
+              backgroundColor: 'rgba(245, 166, 35, 0.15)',
+              border: '1px solid var(--accent)',
+              color: '#92400e',
+              padding: '0.75rem 1rem',
+              borderRadius: '8px',
+              fontSize: '0.9rem',
+              fontWeight: 600,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FaExclamationTriangle style={{ flexShrink: 0, color: '#d97706' }} />
+              <span>{sessionExpiredMsg}</span>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div

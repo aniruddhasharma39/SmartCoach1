@@ -32,6 +32,7 @@ const SORT_OPTIONS = [
 export default function ClusterDashboard(_props: Props) {
   const [gates, setGates] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'create_gate' | 'gate_detail'>('list');
   const [selectedGate, setSelectedGate] = useState<any>(null);
 
@@ -66,6 +67,7 @@ export default function ClusterDashboard(_props: Props) {
 
   const fetchGates = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate`, {
         headers: authHeaders()
@@ -77,11 +79,18 @@ export default function ClusterDashboard(_props: Props) {
           const updated = data.find((g: any) => g.id === selectedGate.id);
           if (updated) setSelectedGate(updated);
         }
+      } else if (res.status === 401) {
+        setFetchError('Your session has expired. Please log in again.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setFetchError(err.error || `Server responded with status ${res.status}`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setFetchError(e.message || 'Network error while loading gates');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -202,6 +211,13 @@ export default function ClusterDashboard(_props: Props) {
               Create New Gate
             </button>
           </div>
+
+          {fetchError && (
+            <div className="alert-card alert-danger mb-4 fade-in" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '12px 16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <span>⚠️ {fetchError}</span>
+              <button className="btn-small btn-primary" onClick={fetchGates} style={{ padding: '6px 14px' }}>Retry</button>
+            </div>
+          )}
 
           {loading ? (
             <div className="spinner-container"><div className="spinner"></div></div>

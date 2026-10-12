@@ -6,6 +6,7 @@ import 'gate_detail_screen.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config.dart';
+import '../../main.dart';
 import 'railway_data.dart';
 
 class ClusterMainScreen extends StatefulWidget {
@@ -95,11 +96,35 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
         setState(() {
           _gates = json.decode(res.body);
         });
+      } else if (res.statusCode == 401) {
+        if (mounted) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.remove('token');
+          await prefs.remove('user');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Your session has expired. Please log in again.')),
+          );
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const AuthWrapper()),
+            (route) => false,
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load clusters: ${res.statusCode}')),
+          );
+        }
       }
     } catch (e) {
       print('Error fetching gates: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Network error loading clusters: $e')),
+        );
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
