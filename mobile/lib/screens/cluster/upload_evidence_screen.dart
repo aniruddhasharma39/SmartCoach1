@@ -28,7 +28,7 @@ class UploadEvidenceScreen extends StatefulWidget {
   State<UploadEvidenceScreen> createState() => _UploadEvidenceScreenState();
 }
 
-class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
+class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with WidgetsBindingObserver {
   XFile? _image;
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
@@ -37,10 +37,220 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
   String _sourceLabel = 'Camera';
   Timer? _progressTimer;
 
+  Position? _currentPosition;
+  bool _isCheckingLocation = false;
+  bool _isLocationServiceEnabled = true;
+  LocationPermission? _locationPermission;
+  String? _locationStatusMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshLocationStatus();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Re-check automatically when user returns from settings
+      _refreshLocationStatus();
+    }
+  }
+
+  Future<void> _refreshLocationStatus() async {
+    if (_isCheckingLocation) return;
+    setState(() => _isCheckingLocation = true);
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      setState(() => _isLocationServiceEnabled = serviceEnabled);
+
+      if (!serviceEnabled) {
+        setState(() {
+          _currentPosition = null;
+          _locationStatusMessage = 'Device Location (GPS) is turned OFF.';
+        });
+        return;
+      }
+
+      final permission = await Geolocator.checkPermission();
+      setState(() => _locationPermission = permission);
+
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        setState(() {
+          _currentPosition = null;
+          _locationStatusMessage = 'Location permission is required.';
+        });
+        return;
+      }
+
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 4),
+        );
+      } catch (_) {
+        pos = await Geolocator.getLastKnownPosition();
+      }
+
+      if (mounted) {
+        setState(() {
+          _currentPosition = pos;
+          _locationStatusMessage = pos != null
+              ? 'GPS Ready: ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}'
+              : 'Acquiring GPS fix...';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error refreshing location: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingLocation = false);
+      }
+    }
+  }
+
+  Future<Position?> _requireLocation() async {
+    // 1. Check if location services (GPS) are turned ON
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    setState(() => _isLocationServiceEnabled = serviceEnabled);
+
+    if (!serviceEnabled) {
+      if (mounted) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.location_off, color: Colors.orange, size: 52),
+            title: const Text('Turn On Location', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+            content: const Text(
+              'Device Location (GPS) is currently turned OFF.\n\nStrict location verification is required to upload evidence proofs.\nPlease turn ON your device location in system settings.',
+              textAlign: TextAlign.center,
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton.icon(
+                icon: const Icon(Icons.location_on),
+                label: const Text('Turn On Location'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue.shade700,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await Geolocator.openLocationSettings();
+                },
+              ),
+            ],
+          ),
+        );
+      }
+      return null;
+    }
+
+    // 2. Check location permissions
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    setState(() => _locationPermission = permission);
+
+    if (permission == LocationPermission.denied) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.lock, color: Colors.red, size: 48),
+            title: const Text('Location Permission Required'),
+            content: const Text(
+              'Location permission was denied. Evidence proof cannot be uploaded without GPS location stamp. Please allow location access.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+      }
+      return null;
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      if (mounted) {
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.location_disabled, color: Colors.red, size: 48),
+            title: const Text('Permission Denied in Settings'),
+            content: const Text(
+              'Location permission is permanently denied. Please open App Settings and grant location access to upload evidence.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  await Geolocator.openAppSettings();
+                },
+                child: const Text('Open App Settings'),
+              ),
+            ],
+          ),
+        );
+      }
+      return null;
+    }
+
+    // 3. Acquire current location
+    Position? position;
+    try {
+      position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 8),
+      );
+    } catch (_) {
+      position = await Geolocator.getLastKnownPosition();
+    }
+
+    if (position == null) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            icon: const Icon(Icons.gps_fixed, color: Colors.amber, size: 48),
+            title: const Text('Unable to Acquire GPS Fix'),
+            content: const Text(
+              'Could not get GPS fix. Please ensure location is turned ON, move near an open window/area if indoors, and try again.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+            ],
+          ),
+        );
+      }
+      return null;
+    }
+
+    setState(() {
+      _currentPosition = position;
+      _locationStatusMessage = 'GPS Ready: ${position!.latitude.toStringAsFixed(4)}, ${position.longitude.toStringAsFixed(4)}';
+    });
+    return position;
   }
 
   Future<void> _pickPhoto(ImageSource source) async {
@@ -50,6 +260,7 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
         _image = photo;
         _sourceLabel = source == ImageSource.camera ? 'Camera' : 'Gallery';
       });
+      _refreshLocationStatus();
     }
   }
 
@@ -84,30 +295,23 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
 
   Future<void> _upload() async {
     if (_image == null) return;
+
     setState(() {
       _isLoading = true;
-      _uploadProgress = 0.15;
-      _progressStatus = 'Getting GPS location...';
+      _uploadProgress = 0.10;
+      _progressStatus = 'Verifying GPS location...';
     });
 
-    try {
-      // Step 1: Get Location
-      Position? position;
-      try {
-        bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (serviceEnabled) {
-          LocationPermission permission = await Geolocator.checkPermission();
-          if (permission == LocationPermission.denied) {
-            permission = await Geolocator.requestPermission();
-          }
-          if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
-            position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-          }
-        }
-      } catch (e) {
-        print('Could not fetch location: $e');
+    final position = await _requireLocation();
+    if (position == null) {
+      // STRICT: Abort upload if location is turned off or not available!
+      if (mounted) {
+        setState(() => _isLoading = false);
       }
+      return;
+    }
 
+    try {
       // Step 2: Read image to base64
       setState(() {
         _uploadProgress = 0.40;
@@ -120,15 +324,15 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
       // Step 3: Preparing payload & starting upload
       setState(() {
         _uploadProgress = 0.60;
-        _progressStatus = 'Uploading photo to server...';
+        _progressStatus = 'Uploading photo with GPS stamp...';
       });
 
       final body = <String, dynamic>{
         'masterId': widget.masterId,
         'category': widget.category,
         'imageBase64': base64Image,
-        'latitude': position?.latitude,
-        'longitude': position?.longitude,
+        'latitude': position.latitude,
+        'longitude': position.longitude,
       };
       if (widget.childDeviceId != null) {
         body['childDeviceId'] = widget.childDeviceId;
@@ -165,19 +369,36 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
           _progressStatus = 'Upload complete!';
         });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploaded successfully!')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploaded successfully with GPS stamp!')));
         }
         await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) {
           Navigator.pop(context, json.decode(res.body));
         }
       } else {
-        throw Exception(res.body);
+        String errMsg = 'Upload failed (${res.statusCode})';
+        try {
+          final errJson = json.decode(res.body);
+          if (errJson is Map) {
+            if (errJson['message'] != null) {
+              errMsg = errJson['message'].toString();
+            } else if (errJson['error'] != null) {
+              errMsg = errJson['error'].toString();
+            }
+          }
+        } catch (_) {
+          errMsg = res.body;
+        }
+        throw Exception(errMsg);
       }
     } catch (e) {
       _progressTimer?.cancel();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        String msg = e.toString();
+        if (msg.startsWith('Exception: ')) {
+          msg = msg.substring('Exception: '.length);
+        }
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $msg')));
       }
     } finally {
       _progressTimer?.cancel();
@@ -185,6 +406,128 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  Widget _buildLocationStatusCard() {
+    if (_currentPosition != null) {
+      return Container(
+        constraints: const BoxConstraints(maxWidth: 360),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.green.shade300),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.green.shade700, size: 22),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'GPS Location Ready',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green.shade900, fontSize: 13),
+                  ),
+                  Text(
+                    '${_currentPosition!.latitude.toStringAsFixed(5)}, ${_currentPosition!.longitude.toStringAsFixed(5)}',
+                    style: TextStyle(color: Colors.green.shade800, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh, size: 20),
+              color: Colors.green.shade700,
+              tooltip: 'Refresh GPS',
+              onPressed: _isLoading ? null : () => _refreshLocationStatus(),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (!_isLocationServiceEnabled) {
+      return Container(
+        constraints: const BoxConstraints(maxWidth: 360),
+        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.orange.shade300),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.location_off, color: Colors.orange.shade800, size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Location (GPS) is Turned OFF',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange.shade900, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Proof cannot be uploaded until device location is turned ON.',
+              style: TextStyle(color: Colors.orange.shade900, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.location_on, size: 18),
+                label: const Text('Turn On Location'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange.shade700,
+                  foregroundColor: Colors.white,
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: () => Geolocator.openLocationSettings(),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 360),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.gps_fixed, color: Colors.blue.shade700, size: 22),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _locationStatusMessage ?? 'GPS location required for proof upload',
+              style: TextStyle(color: Colors.blue.shade900, fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ),
+          IconButton(
+            icon: _isCheckingLocation
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.refresh, size: 20),
+            color: Colors.blue.shade700,
+            tooltip: 'Check GPS',
+            onPressed: _isLoading ? null : () => _refreshLocationStatus(),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -197,6 +540,9 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Live Location Status Banner
+              _buildLocationStatusCard(),
+
               if (_image != null) ...[
                 kIsWeb ? Image.network(_image!.path, height: 300) : Image.file(io.File(_image!.path), height: 300),
                 const SizedBox(height: 16),

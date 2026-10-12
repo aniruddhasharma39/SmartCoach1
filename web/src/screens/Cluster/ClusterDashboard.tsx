@@ -951,13 +951,24 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setUploading(true);
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = reader.result as string;
+    if (!('geolocation' in navigator)) {
+      alert('❌ Geolocation is not supported by your browser.\nDevice location is strictly required to upload evidence proof.');
+      e.target.value = '';
+      return;
+    }
 
-        const uploadWithCoords = async (latitude?: number, longitude?: number) => {
+    setUploading(true);
+
+    // Strictly verify and acquire device location before uploading
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const latitude = pos.coords.latitude;
+        const longitude = pos.coords.longitude;
+
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64String = reader.result as string;
+
           try {
             const res = await fetch(`${API_URL}/api/v1/evidence`, {
               method: 'POST',
@@ -987,29 +998,27 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
             alert('Upload failed: ' + (err.message || 'Network error'));
           } finally {
             setUploading(false);
+            if (e.target) e.target.value = '';
           }
         };
+        reader.readAsDataURL(file);
+      },
+      (err) => {
+        setUploading(false);
+        if (e.target) e.target.value = '';
 
-        if ('geolocation' in navigator) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              uploadWithCoords(pos.coords.latitude, pos.coords.longitude);
-            },
-            (err) => {
-              console.warn('Geolocation unavailable, continuing upload without GPS:', err);
-              uploadWithCoords();
-            },
-            { enableHighAccuracy: true, timeout: 6000 }
-          );
+        if (err.code === 1) { // PERMISSION_DENIED
+          alert('⚠️ Location Access Denied!\n\nGPS location is strictly required to verify installation proof.\nPlease allow location access in your browser settings (click the lock/site settings icon near the address bar) and try again.');
+        } else if (err.code === 2) { // POSITION_UNAVAILABLE
+          alert('⚠️ Device Location is Turned OFF!\n\nPlease turn ON your device location / GPS in system settings before uploading evidence.');
+        } else if (err.code === 3) { // TIMEOUT
+          alert('⚠️ Location Request Timed Out!\n\nCould not acquire GPS coordinates in time. Please check your GPS signal, ensure location is turned ON, and try again.');
         } else {
-          uploadWithCoords();
+          alert(`⚠️ Location Error: ${err.message || 'Unable to get location'}.\nLocation is strictly required to upload evidence proof.`);
         }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error(err);
-      setUploading(false);
-    }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
   };
 
   const handleDelete = async () => {

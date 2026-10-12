@@ -7,13 +7,19 @@ import { RAILWAY_DATA, RAILWAY_ZONES, divisionsForZone } from '../lib/railwayDat
 const router = Router();
 
 const createGateSchema = z.object({
-  name: z.string().optional(),
+  name: z.string().nullable().optional(),
   lcNumberDigits: z.string().regex(/^\d{4}$/, "Must be exactly 4 digits"),
   locationName: z.string().min(1),
   zone: z.string().min(1),
   division: z.string().min(1),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
+  latitude: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? null : Number(val)),
+    z.number().nullable().optional()
+  ),
+  longitude: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? null : Number(val)),
+    z.number().nullable().optional()
+  ),
 });
 
 // Zone/Division reference data (shared source of truth for web + mobile)

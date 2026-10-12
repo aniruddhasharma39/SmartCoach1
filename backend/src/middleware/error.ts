@@ -10,8 +10,10 @@ export function errorHandler(
   console.error(err);
 
   if (err instanceof ZodError) {
+    const message = err.errors.map((e) => e.message).join('; ');
     return res.status(400).json({
       error: 'Validation Error',
+      message: message || 'Validation failed',
       details: err.errors,
     });
   }

@@ -59,12 +59,27 @@ async function deleteEvidenceFile(imageUrl?: string | null) {
 }
 
 const uploadSchema = z.object({
-  masterId: z.number(),
-  childDeviceId: z.number().optional(),
+  masterId: z.preprocess((val) => Number(val), z.number()),
+  childDeviceId: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? null : Number(val)),
+    z.number().nullable().optional()
+  ),
   category: z.enum(['MASTER', 'DEVICE_1', 'DEVICE_2', 'POWER_SOURCE']),
   imageBase64: z.string(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
+  latitude: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? undefined : Number(val)),
+    z.number({
+      required_error: 'GPS Latitude is required. Please turn on device location.',
+      invalid_type_error: 'Valid GPS Latitude is required.',
+    })
+  ),
+  longitude: z.preprocess(
+    (val) => (val === '' || val === null || val === undefined ? undefined : Number(val)),
+    z.number({
+      required_error: 'GPS Longitude is required. Please turn on device location.',
+      invalid_type_error: 'Valid GPS Longitude is required.',
+    })
+  ),
 });
 
 // Upload evidence
@@ -183,8 +198,8 @@ router.post('/', authenticate, async (req: any, res, next) => {
       data: {
         category: data.category,
         imageUrl,
-        latitude: data.latitude,
-        longitude: data.longitude,
+        latitude: data.latitude ?? null,
+        longitude: data.longitude ?? null,
         userId: req.user.id,
         masterId: data.masterId,
         childDeviceId: data.childDeviceId ?? null,
