@@ -279,21 +279,67 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  LinearGradient _buildBackgroundGradient(String? gradientStr) {
+    if (gradientStr == null || gradientStr.isEmpty) {
+      return const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Color(0xFF0B3C7A), Color(0xFF0E9AA7)],
+      );
+    }
+
+    final hexMatches = RegExp(r'#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})').allMatches(gradientStr).toList();
+    if (hexMatches.length >= 2) {
+      Color parseHex(String hex) {
+        String cleanHex = hex.replaceAll('#', '');
+        if (cleanHex.length == 3) {
+          cleanHex = cleanHex.split('').map((c) => '$c$c').join();
+        }
+        return Color(int.parse('FF$cleanHex', radix: 16));
+      }
+
+      try {
+        final c1 = parseHex(hexMatches[0].group(0)!);
+        final c2 = parseHex(hexMatches[1].group(0)!);
+
+        Alignment begin = Alignment.topLeft;
+        Alignment end = Alignment.bottomRight;
+        if (gradientStr.contains('180deg') || gradientStr.contains('to bottom')) {
+          begin = Alignment.topCenter;
+          end = Alignment.bottomCenter;
+        } else if (gradientStr.contains('90deg') || gradientStr.contains('to right')) {
+          begin = Alignment.centerLeft;
+          end = Alignment.centerRight;
+        } else if (gradientStr.contains('45deg')) {
+          begin = Alignment.bottomLeft;
+          end = Alignment.topRight;
+        }
+
+        return LinearGradient(
+          begin: begin,
+          end: end,
+          colors: [c1, c2],
+        );
+      } catch (_) {}
+    }
+
+    return const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF0B3C7A), Color(0xFF0E9AA7)],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final wallpaper = _branding['wallpaperUrl'];
+    final logoUrl = _branding['logoUrl'] ?? _branding['wallpaperUrl'];
+    final gradientStr = _branding['loginGradient']?.toString();
 
     return Scaffold(
       body: Container(
-        decoration: wallpaper != null && wallpaper.toString().isNotEmpty
-            ? BoxDecoration(
-                image: DecorationImage(
-                  image: NetworkImage(wallpaper),
-                  fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(Colors.black.withValues(alpha: 0.5), BlendMode.darken),
-                ),
-              )
-            : const BoxDecoration(color: Color(0xFFF8F9FA)),
+        decoration: BoxDecoration(
+          gradient: _buildBackgroundGradient(gradientStr),
+        ),
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
@@ -301,15 +347,30 @@ class _LoginScreenState extends State<LoginScreen> {
               constraints: const BoxConstraints(maxWidth: 440),
               child: Card(
                 color: Colors.white.withValues(alpha: 0.98),
-                elevation: 8,
+                elevation: 12,
                 shadowColor: Colors.black26,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                 child: Padding(
                   padding: const EdgeInsets.all(28),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // Logo / Emblem inside Login Box
+                      if (logoUrl != null && logoUrl.toString().trim().isNotEmpty) ...[
+                        Center(
+                          child: Container(
+                            constraints: const BoxConstraints(maxHeight: 75, maxWidth: 140),
+                            margin: const EdgeInsets.only(bottom: 16),
+                            child: Image.network(
+                              logoUrl.toString(),
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                            ),
+                          ),
+                        ),
+                      ],
+
                       // Header
                       Text(
                         _branding['appName'] ?? 'LC Platform',
