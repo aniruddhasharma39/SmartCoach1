@@ -1,5 +1,8 @@
 import type { FormField, FormOption } from '../../types/form';
-import { FaPlus, FaTrash, FaGripVertical } from 'react-icons/fa';
+import { 
+  FaPlus, FaTrash, FaTimes, FaCog, 
+  FaListUl, FaArrowUp, FaArrowDown, FaCamera, FaShieldAlt 
+} from 'react-icons/fa';
 
 type Props = {
   field: FormField;
@@ -25,7 +28,10 @@ export default function FieldSettingsSidebar({ field, updateField, close }: Prop
   };
 
   const addOption = () => {
-    const newOpts = [...(field.options || []), { id: Date.now().toString(), label: `Option ${(field.options?.length || 0) + 1}`, value: `opt_${Date.now()}` }];
+    const newOpts = [
+      ...(field.options || []), 
+      { id: Date.now().toString(), label: `Option ${(field.options?.length || 0) + 1}`, value: `opt_${Date.now()}` }
+    ];
     handleChange('options', newOpts);
   };
 
@@ -35,23 +41,55 @@ export default function FieldSettingsSidebar({ field, updateField, close }: Prop
     handleChange('options', newOpts);
   };
 
+  const moveOptionUp = (idx: number) => {
+    if (idx <= 0) return;
+    const newOpts = [...(field.options || [])];
+    const temp = newOpts[idx - 1];
+    newOpts[idx - 1] = newOpts[idx];
+    newOpts[idx] = temp;
+    handleChange('options', newOpts);
+  };
+
+  const moveOptionDown = (idx: number) => {
+    const newOpts = [...(field.options || [])];
+    if (idx >= newOpts.length - 1) return;
+    const temp = newOpts[idx + 1];
+    newOpts[idx + 1] = newOpts[idx];
+    newOpts[idx] = temp;
+    handleChange('options', newOpts);
+  };
+
   const hasOptions = ['dropdown', 'radio', 'checkbox'].includes(field.type);
 
   return (
-    <div className="card h-full" style={{ display: 'flex', flexDirection: 'column', padding: 0, width: 350, borderLeft: '1px solid var(--border)', overflowY: 'auto' }}>
-      <div style={{ padding: 16, borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0 }}>Field Settings</h3>
-        <button className="icon-btn" onClick={close}>X</button>
+    <div className="builder-inspector-panel">
+      {/* Header */}
+      <div className="inspector-header">
+        <h3>
+          <FaCog style={{ color: 'var(--primary, #0b3c7a)' }} />
+          <span>Field Properties</span>
+          <span className="field-type-pill" style={{ marginLeft: 4 }}>
+            {field.type}
+          </span>
+        </h3>
+        <button 
+          className="btn-field-action" 
+          onClick={close} 
+          title="Close Inspector"
+          aria-label="Close"
+        >
+          <FaTimes />
+        </button>
       </div>
 
-      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Core Settings */}
-        <div>
-          <label className="text-sm fw-bold">Label (Display Name)</label>
+      <div className="inspector-body">
+        {/* Basic Field Details */}
+        <div className="inspector-group">
+          <label>Display Label</label>
           <input 
             type="text" 
             value={field.label} 
-            placeholder="e.g. Gender, Profile Photo, ID Proof"
+            placeholder="e.g. Full Name, Email, Employee ID"
             onChange={(e) => {
               const newLabel = e.target.value;
               const isDefaultName = !field.name || field.name.startsWith('field_') || field.name.startsWith('new_') || field.name === field.type;
@@ -69,123 +107,268 @@ export default function FieldSettingsSidebar({ field, updateField, close }: Prop
               }
             }} 
           />
-          <small className="text-muted block mt-1">What users see on the registration form.</small>
+          <span className="inspector-hint">Visible title displayed to the user on the registration screen.</span>
         </div>
         
         {field.type !== 'section' && (
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-sm fw-bold">Field Key (API Name)</label>
-              <span className="badge" style={{ fontSize: '0.72rem', backgroundColor: '#e2e8f0', color: '#475569' }}>
-                Key in Database
-              </span>
+          <div className="inspector-group">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label>API Key / Field Slug</label>
+              <span className="field-key-slug">Database Key</span>
             </div>
             <input 
               type="text" 
               value={field.name} 
-              placeholder="e.g. gender, profilePhoto, idProof"
+              placeholder="e.g. fullName, employeeId, division"
               onChange={(e) => {
                 const clean = e.target.value.replace(/[^a-zA-Z0-9_]/g, '');
                 handleChange('name', clean);
               }} 
             />
-            <small className="text-muted block mt-1">
-              Clean identifier used in database and APIs (e.g. <code>gender</code> instead of <code>field_179...</code>).
-            </small>
+            <span className="inspector-hint">
+              Unique programmatic identifier for API submissions and DB storage.
+            </span>
           </div>
         )}
 
         {field.type !== 'section' && (
-          <div>
-            <label className="text-sm fw-bold">Placeholder</label>
-            <input type="text" value={field.placeholder || ''} onChange={(e) => handleChange('placeholder', e.target.value)} />
+          <div className="inspector-group">
+            <label>Placeholder Text</label>
+            <input 
+              type="text" 
+              value={field.placeholder || ''} 
+              placeholder="e.g. Enter your complete legal name..."
+              onChange={(e) => handleChange('placeholder', e.target.value)} 
+            />
           </div>
         )}
 
-        <div>
-          <label className="text-sm fw-bold">Helper Note</label>
-          <input type="text" value={field.helperText || ''} onChange={(e) => handleChange('helperText', e.target.value)} />
+        <div className="inspector-group">
+          <label>Helper Note / Description</label>
+          <input 
+            type="text" 
+            value={field.helperText || ''} 
+            placeholder="e.g. As per your official government ID"
+            onChange={(e) => handleChange('helperText', e.target.value)} 
+          />
+          <span className="inspector-hint">Subtle hint displayed below the input field.</span>
         </div>
 
         {field.type !== 'section' && (
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={field.required || false} onChange={(e) => handleChange('required', e.target.checked)} />
-            Required Field
-          </label>
+          <div style={{ 
+            background: '#f8fafc', 
+            padding: '0.85rem 1rem', 
+            borderRadius: '10px', 
+            border: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div>
+              <strong style={{ fontSize: '0.875rem', display: 'block', color: 'var(--text-main, #0f172a)' }}>
+                Mandatory Field
+              </strong>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted, #64748b)' }}>
+                User cannot complete registration without this
+              </span>
+            </div>
+            <input 
+              type="checkbox" 
+              checked={field.required || false} 
+              onChange={(e) => handleChange('required', e.target.checked)}
+              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+            />
+          </div>
         )}
 
-        {/* Options Editor */}
+        {/* Options Editor for Dropdown, Radio, Checkbox */}
         {hasOptions && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>Options</h4>
-            <div className="flex-col gap-2">
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <FaListUl style={{ color: '#7c3aed' }} /> Choices & Options
+              </strong>
+              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted, #64748b)' }}>
+                {field.options?.length || 0} option(s)
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {field.options?.map((opt, i) => (
-                <div key={opt.id} className="flex gap-2 items-center">
-                  <FaGripVertical style={{ cursor: 'grab', color: 'var(--muted)' }} />
-                  <input style={{ flex: 1 }} type="text" value={opt.label} onChange={e => handleOptionChange(i, 'label', e.target.value)} placeholder="Label" />
-                  <input style={{ flex: 1 }} type="text" value={opt.value} onChange={e => handleOptionChange(i, 'value', e.target.value)} placeholder="Value" />
-                  <button className="icon-btn danger" onClick={() => removeOption(i)}><FaTrash /></button>
+                <div 
+                  key={opt.id} 
+                  style={{ 
+                    display: 'flex', 
+                    gap: '0.4rem', 
+                    alignItems: 'center',
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '0.4rem'
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                    <button 
+                      type="button"
+                      className="btn-field-action" 
+                      style={{ width: '22px', height: '18px', fontSize: '0.65rem' }} 
+                      disabled={i === 0}
+                      onClick={() => moveOptionUp(i)}
+                      title="Move option up"
+                    >
+                      <FaArrowUp />
+                    </button>
+                    <button 
+                      type="button"
+                      className="btn-field-action" 
+                      style={{ width: '22px', height: '18px', fontSize: '0.65rem' }} 
+                      disabled={i === (field.options?.length || 0) - 1}
+                      onClick={() => moveOptionDown(i)}
+                      title="Move option down"
+                    >
+                      <FaArrowDown />
+                    </button>
+                  </div>
+                  <input 
+                    style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} 
+                    type="text" 
+                    value={opt.label} 
+                    onChange={e => handleOptionChange(i, 'label', e.target.value)} 
+                    placeholder="Option Label" 
+                  />
+                  <input 
+                    style={{ flex: 1, padding: '0.4rem 0.6rem', fontSize: '0.8rem', borderRadius: '6px', border: '1px solid #cbd5e1' }} 
+                    type="text" 
+                    value={opt.value} 
+                    onChange={e => handleOptionChange(i, 'value', e.target.value)} 
+                    placeholder="Stored Value" 
+                  />
+                  <button 
+                    type="button"
+                    className="btn-field-action danger" 
+                    onClick={() => removeOption(i)}
+                    title="Remove option"
+                  >
+                    <FaTrash />
+                  </button>
                 </div>
               ))}
-              <button className="secondary mt-2" onClick={addOption}><FaPlus /> Add Option</button>
+
+              <button 
+                type="button"
+                className="section-add-btn" 
+                style={{ marginTop: '0.4rem', width: '100%', justifyContent: 'center' }} 
+                onClick={addOption}
+              >
+                <FaPlus /> Add New Choice Option
+              </button>
             </div>
           </div>
         )}
 
-        {/* Validation Settings */}
+        {/* Validation Settings for text-like inputs */}
         {['text', 'password', 'email', 'textarea', 'number', 'phone'].includes(field.type) && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>Validation</h4>
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem' }}>
+            <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+              <FaShieldAlt style={{ color: '#0284c7' }} /> Validation Rules
+            </strong>
             
-            <div className="flex gap-2 mt-2">
-              <div style={{ flex: 1 }}>
-                <label className="text-sm">Min Length</label>
-                <input type="number" value={field.validation?.minLength || ''} onChange={e => updateValidation('minLength', parseInt(e.target.value) || undefined)} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+              <div className="inspector-group">
+                <label>Min Length</label>
+                <input 
+                  type="number" 
+                  value={field.validation?.minLength ?? ''} 
+                  placeholder="e.g. 3"
+                  onChange={e => updateValidation('minLength', e.target.value ? parseInt(e.target.value, 10) : undefined)} 
+                />
               </div>
-              <div style={{ flex: 1 }}>
-                <label className="text-sm">Max Length</label>
-                <input type="number" value={field.validation?.maxLength || ''} onChange={e => updateValidation('maxLength', parseInt(e.target.value) || undefined)} />
+              <div className="inspector-group">
+                <label>Max Length</label>
+                <input 
+                  type="number" 
+                  value={field.validation?.maxLength ?? ''} 
+                  placeholder="e.g. 50"
+                  onChange={e => updateValidation('maxLength', e.target.value ? parseInt(e.target.value, 10) : undefined)} 
+                />
               </div>
             </div>
 
-            <div className="mt-2">
-              <label className="text-sm">Regex Pattern</label>
-              <input type="text" value={field.validation?.pattern || ''} onChange={e => updateValidation('pattern', e.target.value)} placeholder="e.g. ^[a-zA-Z]+$" />
+            <div className="inspector-group" style={{ marginTop: '0.75rem' }}>
+              <label>Regex Regex Pattern</label>
+              <input 
+                type="text" 
+                value={field.validation?.pattern || ''} 
+                onChange={e => updateValidation('pattern', e.target.value)} 
+                placeholder="e.g. ^[A-Z0-9]{6,12}$" 
+              />
+              <span className="inspector-hint">Custom regular expression validator.</span>
             </div>
 
             {field.type === 'password' && (
-              <label className="flex items-center gap-2 mt-2">
-                <input type="checkbox" checked={field.validation?.passwordRules || false} onChange={(e) => updateValidation('passwordRules', e.target.checked)} />
-                Enforce Strong Password Rules
-              </label>
+              <div style={{ 
+                background: '#f8fafc', 
+                padding: '0.75rem', 
+                borderRadius: '8px', 
+                border: '1px solid #e2e8f0',
+                marginTop: '0.75rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.6rem'
+              }}>
+                <input 
+                  type="checkbox" 
+                  checked={field.validation?.passwordRules || false} 
+                  onChange={(e) => updateValidation('passwordRules', e.target.checked)} 
+                  id="pwd-enforce"
+                />
+                <label htmlFor="pwd-enforce" style={{ fontSize: '0.825rem', fontWeight: 600, cursor: 'pointer' }}>
+                  Enforce strong security (Upper, Lower, Number, Symbol)
+                </label>
+              </div>
             )}
 
-            <div className="mt-2">
-              <label className="text-sm">Custom Error Message</label>
-              <input type="text" value={field.validation?.customError || ''} onChange={e => updateValidation('customError', e.target.value)} placeholder="Message when validation fails" />
+            <div className="inspector-group" style={{ marginTop: '0.75rem' }}>
+              <label>Custom Error Message</label>
+              <input 
+                type="text" 
+                value={field.validation?.customError || ''} 
+                onChange={e => updateValidation('customError', e.target.value)} 
+                placeholder="e.g. Invalid Employee Code format" 
+              />
             </div>
           </div>
         )}
 
-        {/* Image Settings */}
+        {/* Image / Media Settings */}
         {field.type === 'image' && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <h4 style={{ margin: '0 0 8px 0' }}>Image Settings</h4>
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1.25rem' }}>
+            <strong style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.75rem' }}>
+              <FaCamera style={{ color: '#c026d3' }} /> Camera & Upload Settings
+            </strong>
             
-            <label className="text-sm fw-bold">Source</label>
-            <select 
-              value={field.imageSettings?.source || 'both'} 
-              onChange={e => handleChange('imageSettings', { ...field.imageSettings, source: e.target.value })}
-            >
-              <option value="both">Camera & Gallery</option>
-              <option value="camera">Camera Only (Reduces Tampering)</option>
-              <option value="gallery">Gallery Only</option>
-            </select>
-            <span className="text-sm text-muted mt-1 block">Note: Camera only reduces tampering but is not a 100% guarantee on all devices.</span>
+            <div className="inspector-group">
+              <label>Allowed Source</label>
+              <select 
+                value={field.imageSettings?.source || 'both'} 
+                onChange={e => handleChange('imageSettings', { ...field.imageSettings, source: e.target.value })}
+              >
+                <option value="both">Live Camera & Gallery Uploads</option>
+                <option value="camera">Live Camera Only (Prevents File Tampering)</option>
+                <option value="gallery">Photo Gallery Only</option>
+              </select>
+              <span className="inspector-hint">
+                Recommended: 'Live Camera Only' for gate security badges & evidence.
+              </span>
+            </div>
 
-            <div className="mt-4">
-              <label className="text-sm fw-bold">Max Size (MB)</label>
-              <input type="number" value={field.imageSettings?.maxSizeMB || 5} onChange={e => handleChange('imageSettings', { ...field.imageSettings, maxSizeMB: parseFloat(e.target.value) })} />
+            <div className="inspector-group" style={{ marginTop: '0.75rem' }}>
+              <label>Max Allowed File Size (MB)</label>
+              <input 
+                type="number" 
+                value={field.imageSettings?.maxSizeMB || 5} 
+                onChange={e => handleChange('imageSettings', { ...field.imageSettings, maxSizeMB: parseFloat(e.target.value) || 5 })} 
+              />
             </div>
           </div>
         )}

@@ -1,16 +1,46 @@
-import { useEffect, useState } from 'react';
-import type { FormField, FormSchema } from '../types/form';
+import React, { useEffect, useState, useRef } from 'react';
+import type { FormField, FormSchema, FieldType } from '../types/form';
 import FieldSettingsSidebar from '../components/FormBuilder/FieldSettingsSidebar';
 import FormRenderer from '../components/FormBuilder/FormRenderer';
-import { removeNode, insertBefore, appendToSection } from '../utils/tree';
+import { 
+  removeNode, insertBefore, appendToSection, 
+  moveNodeUp, moveNodeDown, duplicateNode, findNode, countAllFields 
+} from '../utils/tree';
 import { 
   FaGripVertical, FaTrash, FaFolder, FaFont, FaHashtag, FaEnvelope, 
   FaPhone, FaLock, FaCheckSquare, FaCircle, FaCaretSquareDown, 
   FaCalendar, FaImage, FaPlus, FaMobileAlt, FaDesktop, 
   FaExclamationTriangle, FaSpinner, FaCheck, FaSave, FaEye, 
-  FaCloudUploadAlt, FaCheckCircle, FaTimesCircle, FaInfoCircle 
+  FaCloudUploadAlt, FaCheckCircle, FaTimesCircle, FaInfoCircle,
+  FaArrowUp, FaArrowDown, FaCopy, FaCog, FaSearch, FaWpforms,
+  FaClipboardList, FaLayerGroup, FaChevronDown, FaChevronUp, FaTimes, FaEdit
 } from 'react-icons/fa';
 import { API_URL } from '../config';
+import './RegistrationBuilder.css';
+
+// Palette field definition
+interface PaletteField {
+  type: FieldType;
+  label: string;
+  category: 'input' | 'contact' | 'choice' | 'media' | 'layout';
+  icon: any;
+  hint: string;
+}
+
+const PALETTE_FIELDS: PaletteField[] = [
+  { type: 'text', label: 'Short Text', category: 'input', icon: FaFont, hint: 'Single-line text for names, titles, codes' },
+  { type: 'textarea', label: 'Long Text', category: 'input', icon: FaFont, hint: 'Multi-line comments, remarks, or notes' },
+  { type: 'number', label: 'Number', category: 'input', icon: FaHashtag, hint: 'Numeric values, ages, badge numbers' },
+  { type: 'password', label: 'Password', category: 'input', icon: FaLock, hint: 'Secure credentials with hash validation' },
+  { type: 'email', label: 'Email Address', category: 'contact', icon: FaEnvelope, hint: 'Validated electronic mail address' },
+  { type: 'phone', label: 'Mobile Phone', category: 'contact', icon: FaPhone, hint: '10-digit phone for SMS & OTP verification' },
+  { type: 'dropdown', label: 'Dropdown Select', category: 'choice', icon: FaCaretSquareDown, hint: 'Pick one option from a dropdown menu' },
+  { type: 'radio', label: 'Single Choice (Radio)', category: 'choice', icon: FaCircle, hint: 'Pick one visible radio option' },
+  { type: 'checkbox', label: 'Multiple Choice', category: 'choice', icon: FaCheckSquare, hint: 'Select one or multiple checkboxes' },
+  { type: 'date', label: 'Date Picker', category: 'media', icon: FaCalendar, hint: 'Calendar date selection' },
+  { type: 'image', label: 'Photo / Evidence', category: 'media', icon: FaImage, hint: 'Camera capture or gallery photo upload' },
+  { type: 'section', label: 'Section Container', category: 'layout', icon: FaFolder, hint: 'Group related fields inside a collapsible block' },
+];
 
 export default function RegistrationBuilder() {
   const [forms, setForms] = useState<any[]>([]);
@@ -18,10 +48,21 @@ export default function RegistrationBuilder() {
   
   // Active Schema
   const [fields, setFields] = useState<FormField[]>([]);
-  const [allowRoles, setAllowRoles] = useState(false);
+  const [allowRoles, setAllowRoles] = useState(true);
   
   const [activeFieldId, setActiveFieldId] = useState<string | null>(null);
   const [builderErrors, setBuilderErrors] = useState<string[]>([]);
+  
+  // Mobile & Responsive UI State
+  const [activeMobileTab, setActiveMobileTab] = useState<'canvas' | 'palette' | 'properties' | 'settings'>('canvas');
+  const [paletteSearch, setPaletteSearch] = useState('');
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  
+  // Drag and Drop Visual States
+  const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
+  const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
+  const touchSourceIdRef = useRef<string | null>(null);
   
   // App state
   const [showPreview, setShowPreview] = useState(false);
@@ -43,17 +84,17 @@ export default function RegistrationBuilder() {
     }, 3200);
   };
 
-  // Drag state
-
   const fetchForms = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/registration-forms`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
-      setForms(data);
+      if (Array.isArray(data)) {
+        setForms(data);
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching forms:', err);
     }
   };
 
@@ -63,9 +104,11 @@ export default function RegistrationBuilder() {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
       });
       const data = await res.json();
-      setSystemRoles(data);
+      if (Array.isArray(data)) {
+        setSystemRoles(data);
+      }
     } catch (err) {
-      console.error(err);
+      console.error('Error fetching roles:', err);
     }
   };
 
@@ -83,11 +126,15 @@ export default function RegistrationBuilder() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ name: 'New Registration Form', schema: JSON.stringify({ fields: [], allowRoles: true }) })
+        body: JSON.stringify({ 
+          name: `Registration Form v${forms.length + 1}`, 
+          schema: JSON.stringify({ fields: [], allowRoles: true }) 
+        })
       });
       const data = await res.json();
       setForms([data, ...forms]);
-      showToast('New registration form created successfully!');
+      showToast('New registration template created!');
+      openForm(data);
     } catch (err) {
       console.error(err);
       showToast('Failed to create form template', 'danger');
@@ -97,7 +144,7 @@ export default function RegistrationBuilder() {
   };
 
   const deleteForm = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this form?')) return;
+    if (!confirm('Are you sure you want to delete this registration template?')) return;
     setDeletingFormId(id);
     try {
       const res = await fetch(`${API_URL}/api/v1/registration-forms/${id}`, {
@@ -106,14 +153,14 @@ export default function RegistrationBuilder() {
       });
       if (res.ok) {
         setForms(forms.filter(f => f.id !== id));
-        showToast('Form template deleted successfully');
+        showToast('Template deleted successfully');
       } else {
         const err = await res.json();
-        showToast(err.error || 'Failed to delete form', 'danger');
+        showToast(err.error || 'Failed to delete template', 'danger');
       }
     } catch (err) {
       console.error(err);
-      showToast('Error deleting form', 'danger');
+      showToast('Error deleting template', 'danger');
     } finally {
       setDeletingFormId(null);
     }
@@ -134,6 +181,7 @@ export default function RegistrationBuilder() {
     setSaveStatus('idle');
     setPublishStatus('idle');
     setPreviewStatus('idle');
+    setActiveMobileTab('canvas');
   };
 
   const closeForm = () => {
@@ -146,19 +194,20 @@ export default function RegistrationBuilder() {
     }
   };
 
+  // --- Validation ---
   const validateBuilder = (): string[] => {
     const errors: string[] = [];
     const keys = new Set<string>();
 
     const checkField = (f: FormField) => {
-      if (!f.label || f.label.trim() === '') errors.push(`Field/Section missing label (ID: ${f.id})`);
+      if (!f.label || f.label.trim() === '') errors.push(`Field or section is missing a label (ID: ${f.id})`);
       if (f.type !== 'section') {
-        if (!f.name || f.name.trim() === '') errors.push(`Field '${f.label}' is missing an API Key`);
+        if (!f.name || f.name.trim() === '') errors.push(`Field '${f.label || 'Untitled'}' is missing an API Key slug`);
         if (keys.has(f.name)) errors.push(`Duplicate API Key found: '${f.name}'`);
         keys.add(f.name);
       }
       if (['dropdown', 'radio', 'checkbox'].includes(f.type)) {
-        if (!f.options || f.options.length === 0) errors.push(`Field '${f.label}' must have at least one option.`);
+        if (!f.options || f.options.length === 0) errors.push(`Field '${f.label}' must have at least one choice option.`);
         const optValues = new Set<string>();
         f.options?.forEach(o => {
           if (optValues.has(o.value)) errors.push(`Field '${f.label}' has duplicate option value: '${o.value}'`);
@@ -167,7 +216,7 @@ export default function RegistrationBuilder() {
       }
       if (f.validation) {
         if (f.validation.minLength && f.validation.maxLength && f.validation.minLength > f.validation.maxLength) {
-          errors.push(`Field '${f.label}' has contradictory validation (min > max)`);
+          errors.push(`Field '${f.label}' has contradictory validation (Min Length > Max Length)`);
         }
       }
       if (f.children) {
@@ -191,7 +240,7 @@ export default function RegistrationBuilder() {
     fields.forEach(checkContactFields);
 
     if (!hasRequiredEmail && !hasRequiredPhone) {
-      errors.push('Registration form must have at least one mandatory contact method (either Email Address or Mobile Number marked as Required) to enable OTP login and user verification.');
+      errors.push('Registration form must have at least one required contact method (Email or Mobile Phone marked as Required) for OTP security & credentials.');
     }
 
     return errors;
@@ -205,20 +254,19 @@ export default function RegistrationBuilder() {
       setShowPreview(true);
       setPreviewStatus('idle');
       if (errors.length > 0) {
-        showToast(`Preview loaded with ${errors.length} validation warning(s)`, 'info');
+        showToast(`Preview active with ${errors.length} validation warning(s)`, 'info');
       } else {
         showToast('Live preview generated successfully');
       }
-    }, 300);
+    }, 200);
   };
 
   const saveForm = async () => {
     if (!editingForm) return;
     
-    // Warn but allow saving draft
     const errors = validateBuilder();
     if (errors.length > 0) {
-      if (!confirm(`Warning: Your form has ${errors.length} validation errors. Save draft anyway?`)) return;
+      if (!confirm(`Warning: Your template has ${errors.length} validation issues. Save draft anyway?`)) return;
     }
 
     setSaveStatus('saving');
@@ -248,7 +296,7 @@ export default function RegistrationBuilder() {
     } catch (err) {
       console.error(err);
       setSaveStatus('error');
-      showToast('Error saving draft form', 'danger');
+      showToast('Error saving draft template', 'danger');
       setTimeout(() => setSaveStatus('idle'), 2500);
     }
   };
@@ -258,11 +306,11 @@ export default function RegistrationBuilder() {
     const errors = validateBuilder();
     if (errors.length > 0) {
       setBuilderErrors(errors);
-      showToast('Cannot publish. Please fix validation errors first.', 'danger');
+      showToast('Cannot publish. Please resolve validation errors.', 'danger');
       return;
     }
 
-    if (confirm('Are you sure you want to publish this form? This will become the live registration form for all new users.')) {
+    if (confirm('Are you sure you want to publish this form? This will become the LIVE registration form for all new users.')) {
       setPublishStatus('publishing');
       try {
         const payload: FormSchema = { fields, allowRoles };
@@ -284,7 +332,7 @@ export default function RegistrationBuilder() {
         });
         if (res.ok) {
           setPublishStatus('published');
-          showToast('Form published successfully! Now live for all registrations.');
+          showToast('Form published successfully! Now LIVE for registrations.');
           setTimeout(() => {
             fetchForms();
             setEditingForm(null);
@@ -305,20 +353,42 @@ export default function RegistrationBuilder() {
     }
   };
 
-  // --- Drag and Drop Handlers ---
+  // --- HTML5 Desktop Drag and Drop Handlers ---
   const handleDragStart = (e: React.DragEvent, id: string) => {
     e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.setData('application/json', JSON.stringify({ id, kind: 'existing' }));
+    setDraggingFieldId(id);
+    e.stopPropagation();
+  };
+
+  const handlePaletteDragStart = (e: React.DragEvent, type: FieldType) => {
+    e.dataTransfer.setData('text/plain', `palette:${type}`);
+    e.dataTransfer.setData('application/json', JSON.stringify({ type, kind: 'palette' }));
     e.stopPropagation();
   };
 
   const handleDropOnField = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    const sourceId = e.dataTransfer.getData('text/plain');
-    if (!sourceId || sourceId === targetId) return;
+    setDragOverTargetId(null);
+    setDraggingFieldId(null);
+
+    const sourceData = e.dataTransfer.getData('text/plain');
+    if (!sourceData) return;
+
+    if (sourceData.startsWith('palette:')) {
+      const type = sourceData.replace('palette:', '') as FieldType;
+      const created = createNewFieldObject(type);
+      setFields(prev => insertBefore(prev, targetId, created));
+      setActiveFieldId(created.id);
+      showToast(`Added ${created.label}`);
+      return;
+    }
+
+    if (sourceData === targetId) return;
 
     setFields(prev => {
-      let { newList, removed } = removeNode(prev, sourceId);
+      let { newList, removed } = removeNode(prev, sourceData);
       if (removed) {
         return insertBefore(newList, targetId, removed);
       }
@@ -329,11 +399,25 @@ export default function RegistrationBuilder() {
   const handleDropOnSection = (e: React.DragEvent, sectionId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    const sourceId = e.dataTransfer.getData('text/plain');
-    if (!sourceId || sourceId === sectionId) return;
+    setDragOverTargetId(null);
+    setDraggingFieldId(null);
+
+    const sourceData = e.dataTransfer.getData('text/plain');
+    if (!sourceData) return;
+
+    if (sourceData.startsWith('palette:')) {
+      const type = sourceData.replace('palette:', '') as FieldType;
+      const created = createNewFieldObject(type);
+      setFields(prev => appendToSection(prev, sectionId, created));
+      setActiveFieldId(created.id);
+      showToast(`Added ${created.label} to section`);
+      return;
+    }
+
+    if (sourceData === sectionId) return;
 
     setFields(prev => {
-      let { newList, removed } = removeNode(prev, sourceId);
+      let { newList, removed } = removeNode(prev, sourceData);
       if (removed) {
         return appendToSection(newList, sectionId, removed);
       }
@@ -341,116 +425,319 @@ export default function RegistrationBuilder() {
     });
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, targetId?: string) => {
     e.preventDefault();
-  };
-
-  // --- Field Tree Updates ---
-  const mapFields = (list: FormField[], id: string, updater: (f: FormField) => FormField): FormField[] => {
-    return list.map(f => {
-      if (f.id === id) return updater(f);
-      if (f.children) return { ...f, children: mapFields(f.children, id, updater) };
-      return f;
-    });
-  };
-
-  const removeField = (list: FormField[], id: string): FormField[] => {
-    return list.filter(f => f.id !== id).map(f => {
-      if (f.children) return { ...f, children: removeField(f.children, id) };
-      return f;
-    });
-  };
-
-  const updateField = (id: string, updates: Partial<FormField>) => {
-    setFields(prev => mapFields(prev, id, (f) => ({ ...f, ...updates })));
-  };
-
-  const handleDeleteField = (id: string) => {
-    if (confirm('Are you sure you want to delete this field? If it is a section, all nested fields will also be deleted.')) {
-      setFields(prev => removeField(prev, id));
-      if (activeFieldId === id) setActiveFieldId(null);
+    if (targetId && targetId !== dragOverTargetId) {
+      setDragOverTargetId(targetId);
     }
   };
 
-  const handleAddField = (type: FormField['type']) => {
-    const newField: FormField = {
-      id: Date.now().toString(),
-      type,
-      name: type === 'section' ? '' : `field_${Date.now()}`,
-      label: type === 'section' ? 'New Section' : 'New Field',
-      children: type === 'section' ? [] : undefined,
-      options: ['dropdown', 'radio', 'checkbox'].includes(type) ? [
-        { id: Date.now().toString() + '_1', label: 'Option 1', value: 'opt_1' }
-      ] : undefined
-    };
-    setFields([...fields, newField]);
-    setActiveFieldId(newField.id);
+  const handleDragEnd = () => {
+    setDraggingFieldId(null);
+    setDragOverTargetId(null);
   };
 
-  const renderField = (field: FormField) => {
+  // --- Mobile Touch Drag Reordering ---
+  const handleTouchStart = (id: string) => {
+    touchSourceIdRef.current = id;
+    setDraggingFieldId(id);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchSourceIdRef.current) return;
+    const touch = e.touches[0];
+    const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+    const cardElem = elem?.closest('[data-field-id]') as HTMLElement;
+    if (cardElem) {
+      const targetId = cardElem.getAttribute('data-field-id');
+      if (targetId && targetId !== dragOverTargetId) {
+        setDragOverTargetId(targetId);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    const sourceId = touchSourceIdRef.current;
+    const targetId = dragOverTargetId;
+    if (sourceId && targetId && sourceId !== targetId) {
+      setFields(prev => {
+        let { newList, removed } = removeNode(prev, sourceId);
+        if (removed) {
+          return insertBefore(newList, targetId, removed);
+        }
+        return prev;
+      });
+      showToast('Field reordered successfully');
+    }
+    touchSourceIdRef.current = null;
+    setDraggingFieldId(null);
+    setDragOverTargetId(null);
+  };
+
+  // --- Tree Manipulations ---
+  const createNewFieldObject = (type: FieldType): FormField => {
+    const defaultLabels: Record<FieldType, string> = {
+      text: 'Full Name',
+      textarea: 'Additional Remarks',
+      number: 'Employee Badge Number',
+      email: 'Email Address',
+      phone: 'Mobile Phone Number',
+      password: 'Create Password',
+      dropdown: 'Department / Section',
+      radio: 'Gender / Category',
+      checkbox: 'Agreed Declarations',
+      date: 'Date of Joining',
+      image: 'Government ID Proof',
+      section: 'Personal Details'
+    };
+
+    const defaultKeys: Record<FieldType, string> = {
+      text: `fullName_${Date.now().toString().slice(-4)}`,
+      textarea: `remarks_${Date.now().toString().slice(-4)}`,
+      number: `badgeNumber_${Date.now().toString().slice(-4)}`,
+      email: `email`,
+      phone: `mobile`,
+      password: `password`,
+      dropdown: `department_${Date.now().toString().slice(-4)}`,
+      radio: `category_${Date.now().toString().slice(-4)}`,
+      checkbox: `declarations_${Date.now().toString().slice(-4)}`,
+      date: `joiningDate_${Date.now().toString().slice(-4)}`,
+      image: `idProof_${Date.now().toString().slice(-4)}`,
+      section: ''
+    };
+
+    return {
+      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 4),
+      type,
+      name: defaultKeys[type],
+      label: defaultLabels[type] || 'New Field',
+      children: type === 'section' ? [] : undefined,
+      required: ['email', 'phone', 'text'].includes(type),
+      options: ['dropdown', 'radio', 'checkbox'].includes(type) ? [
+        { id: `${Date.now()}_1`, label: 'Option 1', value: 'option_1' },
+        { id: `${Date.now()}_2`, label: 'Option 2', value: 'option_2' }
+      ] : undefined
+    };
+  };
+
+  const handleAddField = (type: FieldType, targetSectionId?: string) => {
+    const newField = createNewFieldObject(type);
+    if (targetSectionId) {
+      setFields(prev => appendToSection(prev, targetSectionId, newField));
+    } else {
+      setFields(prev => [...prev, newField]);
+    }
+    setActiveFieldId(newField.id);
+    setActiveMobileTab('properties');
+    showToast(`Added "${newField.label}"`);
+  };
+
+  const handleDuplicateField = (id: string) => {
+    const { newList, duplicatedId } = duplicateNode(fields, id);
+    setFields(newList);
+    if (duplicatedId) {
+      setActiveFieldId(duplicatedId);
+      showToast('Field duplicated successfully!');
+    }
+  };
+
+  const handleMoveUp = (id: string) => {
+    setFields(prev => moveNodeUp(prev, id));
+  };
+
+  const handleMoveDown = (id: string) => {
+    setFields(prev => moveNodeDown(prev, id));
+  };
+
+  const handleDeleteField = (id: string) => {
+    if (confirm('Delete this field? If it is a section, all nested fields will also be deleted.')) {
+      setFields(prev => removeNode(prev, id).newList);
+      if (activeFieldId === id) setActiveFieldId(null);
+      showToast('Field deleted');
+    }
+  };
+
+  const toggleSectionCollapse = (sectionId: string) => {
+    setCollapsedSections(prev => ({ ...prev, [sectionId]: !prev[sectionId] }));
+  };
+
+  // --- Render Single Field Card ---
+  const renderField = (field: FormField, _parentIsSection = false) => {
     const isActive = activeFieldId === field.id;
+    const isDragging = draggingFieldId === field.id;
+    const isDropTarget = dragOverTargetId === field.id;
+    const isSection = field.type === 'section';
+    const isCollapsed = collapsedSections[field.id] || false;
+
     return (
       <div 
         key={field.id}
+        data-field-id={field.id}
         draggable
         onDragStart={(e) => handleDragStart(e, field.id)}
-        onDragOver={handleDragOver}
+        onDragOver={(e) => handleDragOver(e, field.id)}
         onDrop={(e) => handleDropOnField(e, field.id)}
-        style={{ 
-          border: isActive ? '2px solid var(--primary)' : '1px solid var(--border)', 
-          padding: 16, 
-          marginBottom: 8, 
-          borderRadius: 8, 
-          backgroundColor: field.type === 'section' ? 'var(--background)' : '#fff',
-          cursor: 'pointer'
+        onDragEnd={handleDragEnd}
+        className={`field-card ${isSection ? 'is-section' : ''} ${isActive ? 'is-active' : ''} ${isDragging ? 'is-dragging' : ''} ${isDropTarget ? 'drop-target-active' : ''}`}
+        onClick={(e) => { 
+          e.stopPropagation(); 
+          setActiveFieldId(field.id);
+          // If on mobile screen, provide quick feedback
         }}
-        onClick={(e) => { e.stopPropagation(); setActiveFieldId(field.id); }}
       >
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-4">
-            <div style={{ cursor: 'grab', color: 'var(--muted)', padding: 8 }}><FaGripVertical /></div>
-            <strong>{field.label || 'Untitled'}</strong>
-            <span className="badge" style={{ backgroundColor: 'var(--border)', color: '#333' }}>{field.type}</span>
-            {field.required && <span className="text-danger text-sm">* Req</span>}
+        <div className="field-card-header">
+          <div className="field-card-left">
+            {/* Drag Handle with Touch and Mouse support */}
+            <div 
+              className="field-drag-grip"
+              title="Drag to reorder"
+              onTouchStart={() => handleTouchStart(field.id)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+            >
+              <FaGripVertical />
+            </div>
+
+            <div className="field-title-badge-group">
+              <span className="field-name-title">
+                {field.label || 'Untitled Field'}
+              </span>
+              <span className="field-type-pill">
+                {field.type}
+              </span>
+              {field.type !== 'section' && field.name && (
+                <span className="field-key-slug">
+                  {field.name}
+                </span>
+              )}
+              {field.required && (
+                <span className="field-req-star" title="Mandatory">* Req</span>
+              )}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button className="icon-btn danger" onClick={(e) => { e.stopPropagation(); handleDeleteField(field.id); }}><FaTrash /></button>
+
+          {/* Quick Action Toolbar (Reorder, Settings, Clone, Delete) */}
+          <div className="field-card-actions">
+            <button 
+              type="button"
+              className="btn-field-action" 
+              onClick={(e) => { e.stopPropagation(); handleMoveUp(field.id); }}
+              title="Move Up"
+            >
+              <FaArrowUp />
+            </button>
+            <button 
+              type="button"
+              className="btn-field-action" 
+              onClick={(e) => { e.stopPropagation(); handleMoveDown(field.id); }}
+              title="Move Down"
+            >
+              <FaArrowDown />
+            </button>
+            <button 
+              type="button"
+              className={`btn-field-action ${isActive ? 'primary-action' : ''}`}
+              onClick={(e) => { 
+                e.stopPropagation(); 
+                setActiveFieldId(field.id); 
+                setActiveMobileTab('properties');
+              }}
+              title="Edit Field Properties"
+            >
+              <FaCog />
+            </button>
+            <button 
+              type="button"
+              className="btn-field-action" 
+              onClick={(e) => { e.stopPropagation(); handleDuplicateField(field.id); }}
+              title="Duplicate Field"
+            >
+              <FaCopy />
+            </button>
+            <button 
+              type="button"
+              className="btn-field-action danger" 
+              onClick={(e) => { e.stopPropagation(); handleDeleteField(field.id); }}
+              title="Delete Field"
+            >
+              <FaTrash />
+            </button>
+            {isSection && (
+              <button 
+                type="button"
+                className="btn-field-action" 
+                onClick={(e) => { e.stopPropagation(); toggleSectionCollapse(field.id); }}
+                title={isCollapsed ? 'Expand Section' : 'Collapse Section'}
+              >
+                {isCollapsed ? <FaChevronDown /> : <FaChevronUp />}
+              </button>
+            )}
           </div>
         </div>
         
-        {field.type === 'section' && (
+        {/* Section Child Zone */}
+        {isSection && !isCollapsed && (
           <div 
-            style={{ paddingLeft: 24, paddingTop: 16, borderLeft: '2px dashed var(--border)', marginTop: 16, minHeight: 60 }}
+            className="section-children-zone"
             onDrop={(e) => handleDropOnSection(e, field.id)}
-            onDragOver={handleDragOver}
+            onDragOver={(e) => handleDragOver(e, field.id)}
           >
-            {field.children?.map(renderField)}
-            {(!field.children || field.children.length === 0) && (
-              <div className="text-muted text-sm mt-2 p-4 text-center border-dashed border-2 rounded">Drop fields here to add to section</div>
+            {field.children && field.children.length > 0 ? (
+              field.children.map(child => renderField(child, true))
+            ) : (
+              <div className="section-drop-zone-empty">
+                Drag fields here or tap "+ Add Field inside"
+              </div>
             )}
+            
+            <button 
+              type="button"
+              className="section-add-btn" 
+              onClick={(e) => {
+                e.stopPropagation();
+                handleAddField('text', field.id);
+              }}
+            >
+              <FaPlus /> Add Field Inside Section
+            </button>
           </div>
         )}
       </div>
     );
   };
 
+  // --- Active Field for Inspector ---
+  const activeField = activeFieldId ? findNode(fields, activeFieldId) : null;
+
+  // Filtered Palette
+  const filteredPalette = PALETTE_FIELDS.filter(p => 
+    p.label.toLowerCase().includes(paletteSearch.toLowerCase()) || 
+    p.hint.toLowerCase().includes(paletteSearch.toLowerCase()) ||
+    p.category.toLowerCase().includes(paletteSearch.toLowerCase())
+  );
+
+  // Grouped Palette
+  const paletteCategories: Array<{ key: PaletteField['category']; title: string }> = [
+    { key: 'input', title: 'Text & Input' },
+    { key: 'contact', title: 'Contact & Verification' },
+    { key: 'choice', title: 'Options & Choices' },
+    { key: 'media', title: 'Media & Date' },
+    { key: 'layout', title: 'Sections & Layout' }
+  ];
+
+  // Filtered Templates
+  const filteredTemplates = forms.filter(f => 
+    f.name.toLowerCase().includes(templateSearch.toLowerCase()) ||
+    f.status.toLowerCase().includes(templateSearch.toLowerCase())
+  );
+
+  // --- Render Editor Console View ---
   if (editingForm) {
-    const activeField = activeFieldId ? (() => {
-      const search = (list: FormField[]): FormField | null => {
-        for(const f of list) {
-          if (f.id === activeFieldId) return f;
-          if (f.children) {
-            const found = search(f.children);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-      return search(fields);
-    })() : null;
+    const totalFieldsCount = countAllFields(fields);
 
     return (
-      <div className="flex-col h-full" style={{ position: 'relative' }}>
+      <div className="reg-builder-root">
+        {/* Toast Notification */}
         {toast && (
           <div className={`toast-banner ${toast.type}`}>
             {toast.type === 'success' && <FaCheckCircle size={16} />}
@@ -460,42 +747,47 @@ export default function RegistrationBuilder() {
           </div>
         )}
 
-        <div className="card flex justify-between items-center" style={{ borderRadius: 0, borderBottom: '1px solid var(--border)', padding: '16px 24px' }}>
-          <div>
-            <h2 style={{ margin: 0 }}>
+        {/* Top Header Console Bar */}
+        <div className="reg-editor-header">
+          <div className="reg-editor-title-container">
+            <div className="reg-title-input-wrapper">
               <input 
                 type="text" 
                 value={editingForm.name} 
-                onChange={e => setEditingForm({...editingForm, name: e.target.value})} 
-                style={{ fontSize: '1.5rem', fontWeight: 'bold', border: 'none', outline: 'none', background: 'transparent' }}
+                onChange={e => setEditingForm({ ...editingForm, name: e.target.value })}
+                className="reg-title-input"
+                placeholder="Registration Form Title..."
+                title="Click to rename registration template"
               />
-            </h2>
-            <div className="flex gap-4 mt-2">
-              <span className={`badge ${editingForm.status.toLowerCase()}`}>{editingForm.status}</span>
-              <span className="text-muted">Version {editingForm.version}</span>
+            </div>
+            <div className="reg-editor-meta-row">
+              <span className={`reg-status-pill ${editingForm.status.toLowerCase()}`}>
+                {editingForm.status === 'LIVE' && <span className="reg-pulse-dot" />}
+                {editingForm.status}
+              </span>
+              <span>Version {editingForm.version}</span>
+              <span>•</span>
+              <span>{totalFieldsCount} Field{totalFieldsCount === 1 ? '' : 's'}</span>
             </div>
           </div>
-          <div className="flex gap-2">
+
+          <div className="reg-editor-actions-group">
             <button 
-              className="secondary outline" 
+              className="btn-editor cancel" 
               onClick={closeForm}
-              title="Leave form builder and discard unsaved changes"
-              data-tooltip="Discard unsaved changes"
-              data-tooltip-pos="bottom"
+              title="Close editor and discard unsaved changes"
             >
               Cancel
             </button>
             <button 
-              className="secondary flex items-center gap-2" 
+              className="btn-editor preview" 
               disabled={previewStatus === 'loading'}
               onClick={handlePreview}
-              title="Preview form layout and interactive behavior across devices"
-              data-tooltip="Preview form on Web & Mobile"
-              data-tooltip-pos="bottom"
+              title="Preview form on web and mobile devices"
             >
               {previewStatus === 'loading' ? (
                 <>
-                  <FaSpinner className="spin" /> Opening Preview...
+                  <FaSpinner className="spin" /> Opening...
                 </>
               ) : (
                 <>
@@ -504,20 +796,18 @@ export default function RegistrationBuilder() {
               )}
             </button>
             <button 
-              className={`primary flex items-center gap-2 ${saveStatus === 'saved' ? 'btn-success-state' : ''}`}
+              className={`btn-editor save ${saveStatus === 'saved' ? 'btn-success-state' : ''}`}
               disabled={saveStatus === 'saving'}
               onClick={saveForm}
-              title="Save current form layout and field configuration as draft"
-              data-tooltip="Save changes as draft"
-              data-tooltip-pos="bottom"
+              title="Save changes as draft template"
             >
               {saveStatus === 'saving' ? (
                 <>
-                  <FaSpinner className="spin" /> Saving Draft...
+                  <FaSpinner className="spin" /> Saving...
                 </>
               ) : saveStatus === 'saved' ? (
                 <>
-                  <FaCheck /> Draft Saved!
+                  <FaCheck /> Saved!
                 </>
               ) : (
                 <>
@@ -526,20 +816,18 @@ export default function RegistrationBuilder() {
               )}
             </button>
             <button 
-              className={`primary outline flex items-center gap-2 ${publishStatus === 'published' ? 'btn-success-state' : ''}`}
+              className={`btn-editor publish ${publishStatus === 'published' ? 'btn-success-state' : ''}`}
               disabled={publishStatus === 'publishing'}
               onClick={publishForm}
-              title="Publish this form live for public user registrations"
-              data-tooltip="Publish form live for registrations"
-              data-tooltip-pos="bottom"
+              title="Publish form live for public user registrations"
             >
               {publishStatus === 'publishing' ? (
                 <>
-                  <FaSpinner className="spin" /> Publishing Live...
+                  <FaSpinner className="spin" /> Publishing...
                 </>
               ) : publishStatus === 'published' ? (
                 <>
-                  <FaCheck /> Published!
+                  <FaCheck /> Live!
                 </>
               ) : (
                 <>
@@ -550,68 +838,165 @@ export default function RegistrationBuilder() {
           </div>
         </div>
 
+        {/* Validation Errors Alert Banner */}
         {builderErrors.length > 0 && (
-          <div style={{ padding: '16px 24px', backgroundColor: 'var(--danger)', color: '#fff' }}>
-            <div className="flex items-center gap-2 mb-2"><FaExclamationTriangle /> <strong>Validation Errors</strong></div>
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {builderErrors.map((e, i) => <li key={i}>{e}</li>)}
-            </ul>
+          <div className="reg-validation-banner">
+            <FaExclamationTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <strong>Form Validation Warning:</strong>
+              <ul>
+                {builderErrors.map((err, i) => (
+                  <li key={i}>{err}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
 
-        <div className="flex" style={{ flex: 1, overflow: 'hidden' }}>
-          {/* Add Fields Sidebar */}
-          <div className="card h-full" style={{ width: 250, padding: 16, borderRight: '1px solid var(--border)', overflowY: 'auto' }}>
-            <h3 className="mb-4">Add Field</h3>
-            <div className="flex-col gap-2">
-              {[
-                { type: 'text', label: 'Short Text', icon: FaFont },
-                { type: 'textarea', label: 'Long Text', icon: FaFont },
-                { type: 'number', label: 'Number', icon: FaHashtag },
-                { type: 'email', label: 'Email', icon: FaEnvelope },
-                { type: 'phone', label: 'Phone', icon: FaPhone },
-                { type: 'password', label: 'Password', icon: FaLock },
-                { type: 'dropdown', label: 'Dropdown', icon: FaCaretSquareDown },
-                { type: 'radio', label: 'Single Choice', icon: FaCircle },
-                { type: 'checkbox', label: 'Multiple Choice', icon: FaCheckSquare },
-                { type: 'date', label: 'Date Picker', icon: FaCalendar },
-                { type: 'image', label: 'Image Upload', icon: FaImage },
-                { type: 'section', label: 'Section Container', icon: FaFolder },
-              ].map(f => (
-                <button 
-                  key={f.type}
-                  className="secondary outline text-left flex gap-2 items-center" 
-                  style={{ width: '100%', justifyContent: 'flex-start' }}
-                  onClick={() => {
-                    handleAddField(f.type as any);
-                    showToast(`Added ${f.label} field`, 'info');
+        {/* Mobile Segmented Navigation Tabs (< 1024px) */}
+        <div className="reg-mobile-nav-tabs">
+          <button 
+            type="button"
+            className={`reg-mobile-tab-btn ${activeMobileTab === 'canvas' ? 'active' : ''}`}
+            onClick={() => setActiveMobileTab('canvas')}
+          >
+            <FaWpforms /> Canvas <span className="tab-badge">{totalFieldsCount}</span>
+          </button>
+          <button 
+            type="button"
+            className={`reg-mobile-tab-btn ${activeMobileTab === 'palette' ? 'active' : ''}`}
+            onClick={() => setActiveMobileTab('palette')}
+          >
+            <FaPlus /> + Add Field
+          </button>
+          <button 
+            type="button"
+            className={`reg-mobile-tab-btn ${activeMobileTab === 'properties' ? 'active' : ''}`}
+            onClick={() => setActiveMobileTab('properties')}
+          >
+            <FaCog /> Properties {activeField ? `(${activeField.label.slice(0, 10)})` : ''}
+          </button>
+          <button 
+            type="button"
+            className={`reg-mobile-tab-btn ${activeMobileTab === 'settings' ? 'active' : ''}`}
+            onClick={() => setActiveMobileTab('settings')}
+          >
+            <FaLayerGroup /> Settings
+          </button>
+        </div>
+
+        {/* Workspace 3-Column / Responsive Layout */}
+        <div className="reg-workspace">
+          {/* LEFT PALETTE PANEL: Visible on Desktop or when mobile tab is 'palette' */}
+          <div 
+            className="builder-palette-panel"
+            style={{ 
+              display: window.innerWidth <= 1024 && activeMobileTab !== 'palette' ? 'none' : 'flex' 
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Field Library</h3>
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                  Drag or tap to add
+                </span>
+              </div>
+              
+              {/* Search box for palette */}
+              <div style={{ position: 'relative' }}>
+                <input 
+                  type="text" 
+                  value={paletteSearch} 
+                  onChange={e => setPaletteSearch(e.target.value)}
+                  placeholder="Search field types..."
+                  style={{ 
+                    width: '100%', 
+                    padding: '0.45rem 0.65rem 0.45rem 1.8rem', 
+                    borderRadius: '8px', 
+                    border: '1px solid #cbd5e1',
+                    fontSize: '0.8rem'
                   }}
-                  title={`Add ${f.label} to form`}
-                  data-tooltip={`Add ${f.label}`}
-                >
-                  <f.icon /> {f.label}
-                </button>
-              ))}
+                />
+                <FaSearch style={{ position: 'absolute', left: '0.65rem', top: '0.6rem', color: '#94a3b8', fontSize: '0.75rem' }} />
+              </div>
             </div>
 
-            <h3 className="mt-8 mb-4">Form Settings</h3>
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={allowRoles} onChange={e => setAllowRoles(e.target.checked)} />
-              Prompt for Role
-            </label>
-            <p className="text-xs text-muted mt-2">If enabled, users will be required to select a role during registration (this acts as a request, awaiting admin approval).</p>
+            {/* Categorized Fields List */}
+            {paletteCategories.map(cat => {
+              const catFields = filteredPalette.filter(f => f.category === cat.key);
+              if (catFields.length === 0) return null;
+              return (
+                <div key={cat.key}>
+                  <div className="palette-category-title">
+                    {cat.title}
+                  </div>
+                  <div className="palette-grid">
+                    {catFields.map(f => (
+                      <button 
+                        key={f.type}
+                        type="button"
+                        draggable
+                        onDragStart={(e) => handlePaletteDragStart(e, f.type)}
+                        className="palette-item-btn"
+                        onClick={() => {
+                          handleAddField(f.type);
+                          if (window.innerWidth <= 1024) {
+                            setActiveMobileTab('canvas');
+                          }
+                        }}
+                        title={`${f.label}: ${f.hint} (Drag into canvas or tap to add)`}
+                      >
+                        <div className={`palette-icon-wrapper ${f.category}`}>
+                          <f.icon />
+                        </div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <span style={{ display: 'block', lineHeight: 1.2 }}>{f.label}</span>
+                        </div>
+                        <FaPlus style={{ color: '#94a3b8', fontSize: '0.75rem' }} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Mobile Form Settings Option in Palette Panel */}
+            <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '1rem', marginTop: 'auto' }}>
+              <div className="palette-category-title">
+                Role Assignment Request
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.825rem', fontWeight: 600, cursor: 'pointer' }}>
+                <input 
+                  type="checkbox" 
+                  checked={allowRoles} 
+                  onChange={e => setAllowRoles(e.target.checked)}
+                  style={{ width: '16px', height: '16px' }} 
+                />
+                Allow Role Selection on Form
+              </label>
+              <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '0.35rem 0 0 0' }}>
+                Prompts applicants to request a designated role (e.g. Gatesman, Section Master). Admins can approve or alter it.
+              </p>
+            </div>
           </div>
 
-          {/* Canvas */}
+          {/* MIDDLE CANVAS PANEL: Visible on Desktop or when mobile tab is 'canvas' */}
           <div 
-            style={{ flex: 1, padding: 32, overflowY: 'auto', backgroundColor: '#f0f2f5' }}
+            className="builder-canvas-panel"
+            style={{ 
+              display: window.innerWidth <= 1024 && activeMobileTab !== 'canvas' ? 'none' : 'flex' 
+            }}
             onDrop={(e) => {
-              // Handle drop on empty area to move to root level
               e.preventDefault();
-              const sourceId = e.dataTransfer.getData('text/plain');
-              if (sourceId) {
+              const sourceData = e.dataTransfer.getData('text/plain');
+              if (sourceData.startsWith('palette:')) {
+                const type = sourceData.replace('palette:', '') as FieldType;
+                handleAddField(type);
+                return;
+              }
+              if (sourceData) {
                 setFields(prev => {
-                  let { newList, removed } = removeNode(prev, sourceId);
+                  let { newList, removed } = removeNode(prev, sourceData);
                   if (removed) return [...newList, removed];
                   return prev;
                 });
@@ -619,70 +1004,201 @@ export default function RegistrationBuilder() {
             }}
             onDragOver={handleDragOver}
           >
-            {fields.length === 0 ? (
-              <div className="text-center text-muted mt-8" style={{ padding: 48, border: '2px dashed var(--border)', borderRadius: 8 }}>
-                <h3 className="mb-2">No fields yet</h3>
-                <p>Click a field type on the left to get started.</p>
-              </div>
-            ) : (
-              <div className="flex-col gap-2" style={{ maxWidth: 800, margin: '0 auto', paddingBottom: 100 }}>
-                {fields.map(renderField)}
-              </div>
-            )}
+            <div className="canvas-container">
+              {fields.length === 0 ? (
+                <div className="canvas-empty-state">
+                  <div className="canvas-empty-icon">
+                    <FaWpforms />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 0.35rem 0', fontSize: '1.25rem', color: '#0f172a' }}>
+                      Start Building Your Registration Form
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.875rem' }}>
+                      Drag elements from the left palette or tap "+ Add Field" below to begin.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+                    <button 
+                      type="button"
+                      className="btn-editor save" 
+                      onClick={() => handleAddField('text')}
+                    >
+                      <FaPlus /> Add Full Name
+                    </button>
+                    <button 
+                      type="button"
+                      className="btn-editor save" 
+                      onClick={() => handleAddField('phone')}
+                    >
+                      <FaPlus /> Add Phone (SMS/OTP)
+                    </button>
+                    <button 
+                      type="button"
+                      className="btn-editor save" 
+                      onClick={() => handleAddField('email')}
+                    >
+                      <FaPlus /> Add Email
+                    </button>
+                    <button 
+                      type="button"
+                      className="btn-editor save" 
+                      onClick={() => handleAddField('section')}
+                    >
+                      <FaPlus /> Add Section
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                fields.map(f => renderField(f))
+              )}
+            </div>
           </div>
 
-          {/* Properties Sidebar */}
+          {/* RIGHT INSPECTOR PANEL: Visible on Desktop (if activeField exists) or when mobile tab is 'properties' */}
           {activeField && (
-            <FieldSettingsSidebar 
-              field={activeField} 
-              updateField={updateField} 
-              close={() => setActiveFieldId(null)} 
-            />
+            <div 
+              style={{ 
+                display: window.innerWidth <= 1024 && activeMobileTab !== 'properties' ? 'none' : 'flex' 
+              }}
+            >
+              <FieldSettingsSidebar 
+                field={activeField} 
+                updateField={(id, updates) => {
+                  const mapFields = (list: FormField[]): FormField[] => {
+                    return list.map(f => {
+                      if (f.id === id) return { ...f, ...updates };
+                      if (f.children) return { ...f, children: mapFields(f.children) };
+                      return f;
+                    });
+                  };
+                  setFields(prev => mapFields(prev));
+                }} 
+                close={() => {
+                  setActiveFieldId(null);
+                  if (window.innerWidth <= 1024) {
+                    setActiveMobileTab('canvas');
+                  }
+                }} 
+              />
+            </div>
+          )}
+
+          {/* MOBILE FORM SETTINGS TAB: Displayed when mobile tab is 'settings' */}
+          {activeMobileTab === 'settings' && (
+            <div 
+              className="builder-inspector-panel" 
+              style={{ display: 'flex', width: '100%', padding: '1.25rem' }}
+            >
+              <h3 style={{ margin: '0 0 1rem 0' }}>Form Configuration</h3>
+              <div className="inspector-group" style={{ marginBottom: '1rem' }}>
+                <label>Template Name</label>
+                <input 
+                  type="text" 
+                  value={editingForm.name} 
+                  onChange={e => setEditingForm({ ...editingForm, name: e.target.value })}
+                />
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '10px', border: '1px solid #e2e8f0', marginBottom: '1rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontWeight: 600 }}>
+                  <input 
+                    type="checkbox" 
+                    checked={allowRoles} 
+                    onChange={e => setAllowRoles(e.target.checked)} 
+                    style={{ width: '18px', height: '18px' }}
+                  />
+                  Require Role Selection
+                </label>
+                <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '0.4rem 0 0 0' }}>
+                  When checked, users can choose their requested organizational role when registering.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button 
+                  type="button"
+                  className="btn-editor save" 
+                  style={{ flex: 1 }} 
+                  onClick={() => setActiveMobileTab('canvas')}
+                >
+                  Return to Canvas
+                </button>
+              </div>
+            </div>
           )}
         </div>
-        
-        {/* Preview Modal */}
+
+        {/* LIVE PREVIEW MODAL */}
         {showPreview && (
-          <div className="modal-overlay" style={{ padding: '24px' }}>
-            <div className="modal" style={{ width: previewWidth === 'mobile' ? 400 : 800, height: '90vh', display: 'flex', flexDirection: 'column', transition: 'width 0.3s' }}>
-              <div className="flex justify-between items-center mb-4 pb-4 border-bottom">
-                <h3>Live Preview</h3>
-                <div className="flex gap-2">
+          <div className="reg-preview-modal-overlay">
+            <div className={`reg-preview-window ${previewWidth}`}>
+              {/* Preview Toolbar */}
+              <div className="preview-top-toolbar">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <strong style={{ fontSize: '1rem', color: 'var(--text-main, #0f172a)' }}>
+                    Live Registration Preview
+                  </strong>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  {/* Device Viewport Toggle */}
+                  <div className="preview-device-toggle">
+                    <button 
+                      type="button"
+                      className={`btn-device-toggle ${previewWidth === 'web' ? 'active' : ''}`}
+                      onClick={() => setPreviewWidth('web')}
+                      title="Desktop browser viewport"
+                    >
+                      <FaDesktop /> Desktop
+                    </button>
+                    <button 
+                      type="button"
+                      className={`btn-device-toggle ${previewWidth === 'mobile' ? 'active' : ''}`}
+                      onClick={() => setPreviewWidth('mobile')}
+                      title="Mobile phone viewport"
+                    >
+                      <FaMobileAlt /> Mobile
+                    </button>
+                  </div>
+
                   <button 
-                    className={`secondary ${previewWidth === 'web' ? '' : 'outline'} flex items-center gap-2`} 
-                    onClick={() => setPreviewWidth('web')}
-                    title="Switch to Desktop / Web browser viewport"
-                    data-tooltip="Desktop viewport (800px)"
-                  >
-                    <FaDesktop /> Web
-                  </button>
-                  <button 
-                    className={`secondary ${previewWidth === 'mobile' ? '' : 'outline'} flex items-center gap-2`} 
-                    onClick={() => setPreviewWidth('mobile')}
-                    title="Switch to Mobile smartphone viewport"
-                    data-tooltip="Mobile viewport (400px)"
-                  >
-                    <FaMobileAlt /> Mobile
-                  </button>
-                  <button 
-                    className="icon-btn" 
+                    type="button"
+                    className="btn-field-action" 
                     onClick={() => setShowPreview(false)}
-                    title="Close preview modal"
-                    data-tooltip="Close preview"
+                    title="Close preview"
                   >
-                    X
+                    <FaTimes />
                   </button>
                 </div>
               </div>
-              <div style={{ flex: 1, overflowY: 'auto', backgroundColor: '#fff', padding: '32px 24px', borderRadius: 8 }}>
-                <FormRenderer 
-                  schema={{ fields, allowRoles }} 
-                  roles={systemRoles} 
-                  onSubmit={(data) => {
-                    showToast('Form submitted successfully in preview mode!', 'info');
-                    alert('Form submitted in preview! Data:\n' + JSON.stringify(data, null, 2));
-                  }} 
-                />
+
+              {/* Preview Content Area */}
+              <div className="preview-content-area">
+                {previewWidth === 'mobile' ? (
+                  <div className="smartphone-frame">
+                    <div className="smartphone-notch" />
+                    <FormRenderer 
+                      schema={{ fields, allowRoles }} 
+                      roles={systemRoles} 
+                      onSubmit={(data) => {
+                        showToast('Preview submission received successfully!', 'info');
+                        alert('Preview Form Submitted! Captured payload:\n' + JSON.stringify(data, null, 2));
+                      }} 
+                    />
+                  </div>
+                ) : (
+                  <div style={{ width: '100%', maxWidth: '780px', background: '#ffffff', padding: '2rem', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+                    <FormRenderer 
+                      schema={{ fields, allowRoles }} 
+                      roles={systemRoles} 
+                      onSubmit={(data) => {
+                        showToast('Preview submission received successfully!', 'info');
+                        alert('Preview Form Submitted! Captured payload:\n' + JSON.stringify(data, null, 2));
+                      }} 
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -691,8 +1207,21 @@ export default function RegistrationBuilder() {
     );
   }
 
+  // --- Render Dashboard / Template Catalog View ---
+  const totalTemplates = forms.length;
+  const liveTemplate = forms.find(f => f.status === 'LIVE');
+  const liveFieldCount = liveTemplate ? (() => {
+    try {
+      const p = JSON.parse(liveTemplate.schema);
+      return countAllFields(p.fields || []);
+    } catch {
+      return 0;
+    }
+  })() : 0;
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="reg-builder-root">
+      {/* Toast Notification */}
       {toast && (
         <div className={`toast-banner ${toast.type}`}>
           {toast.type === 'success' && <FaCheckCircle size={16} />}
@@ -702,67 +1231,173 @@ export default function RegistrationBuilder() {
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-6">
-        <h2>Registration Builder</h2>
-        <button 
-          className="primary flex items-center gap-2" 
-          disabled={isCreatingForm}
-          onClick={createForm}
-          title="Create a new registration form template"
-          data-tooltip="Create new form template"
-        >
-          {isCreatingForm ? (
-            <>
-              <FaSpinner className="spin" /> Creating Form...
-            </>
-          ) : (
-            <>
-              <FaPlus /> Create Form
-            </>
-          )}
-        </button>
-      </div>
-      
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px' }}>
-        {forms.map(form => (
-          <div key={form.id} className="card">
-            <div className="flex justify-between items-center mb-4">
-              <h3 style={{ margin: 0 }}>{form.name}</h3>
-              <span className={`badge ${form.status.toLowerCase()}`}>{form.status}</span>
+      <div className="reg-builder-dashboard">
+        {/* Dashboard Header */}
+        <div className="reg-dashboard-header">
+          <div className="reg-title-group">
+            <div className="reg-title-icon-badge">
+              <FaWpforms />
             </div>
-            <p className="text-muted text-sm mb-4">Version {form.version}</p>
-            <p className="text-muted text-sm mb-4">Created: {new Date(form.createdAt).toLocaleDateString()}</p>
-            
-            <div className="flex gap-2">
-              <button 
-                className="primary outline" 
-                style={{ flex: 1 }} 
-                onClick={() => openForm(form)}
-                title={`Open and edit ${form.name}`}
-                data-tooltip="Open form editor"
-              >
-                Edit Form
-              </button>
-              {form.status !== 'LIVE' && (
-                <button 
-                  className="danger outline" 
-                  disabled={deletingFormId === form.id}
-                  onClick={() => deleteForm(form.id)}
-                  title={`Delete ${form.name}`}
-                  data-tooltip="Delete form draft"
-                >
-                  {deletingFormId === form.id ? (
-                    <>
-                      <FaSpinner className="spin" /> Deleting...
-                    </>
-                  ) : (
-                    'Delete'
-                  )}
-                </button>
-              )}
+            <div className="reg-title-text">
+              <h2>Registration Builder</h2>
+              <p>Design, customize, and publish dynamic user onboarding and verification forms</p>
             </div>
           </div>
-        ))}
+
+          <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
+            <button 
+              className="btn-editor publish" 
+              disabled={isCreatingForm}
+              onClick={createForm}
+              title="Create a new registration form template"
+            >
+              {isCreatingForm ? (
+                <>
+                  <FaSpinner className="spin" /> Creating...
+                </>
+              ) : (
+                <>
+                  <FaPlus /> Create Form
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Real-time Metric Stats Cards */}
+        <div className="reg-stats-grid">
+          <div className="reg-stat-card">
+            <div className="reg-stat-icon primary">
+              <FaClipboardList />
+            </div>
+            <div className="reg-stat-info">
+              <span className="reg-stat-label">Total Templates</span>
+              <span className="reg-stat-val">{totalTemplates}</span>
+            </div>
+          </div>
+
+          <div className="reg-stat-card">
+            <div className="reg-stat-icon success">
+              <FaCheckCircle />
+            </div>
+            <div className="reg-stat-info">
+              <span className="reg-stat-label">Active Live Form</span>
+              <span className="reg-stat-val" style={{ fontSize: '1.1rem' }}>
+                {liveTemplate ? liveTemplate.name : 'None Live'}
+              </span>
+            </div>
+          </div>
+
+          <div className="reg-stat-card">
+            <div className="reg-stat-icon info">
+              <FaLayerGroup />
+            </div>
+            <div className="reg-stat-info">
+              <span className="reg-stat-label">Live Form Fields</span>
+              <span className="reg-stat-val">{liveFieldCount}</span>
+            </div>
+          </div>
+
+          <div className="reg-stat-card">
+            <div className="reg-stat-icon warning">
+              <FaMobileAlt />
+            </div>
+            <div className="reg-stat-info">
+              <span className="reg-stat-label">Console Engine</span>
+              <span className="reg-stat-val" style={{ fontSize: '1.1rem' }}>
+                Mobile Responsive
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Search & Filter Bar */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+            <input 
+              type="text" 
+              value={templateSearch} 
+              onChange={e => setTemplateSearch(e.target.value)}
+              placeholder="Search registration templates..."
+              style={{ 
+                width: '100%', 
+                padding: '0.6rem 0.85rem 0.6rem 2.2rem', 
+                borderRadius: '10px', 
+                border: '1px solid #cbd5e1',
+                fontSize: '0.875rem',
+                background: '#ffffff'
+              }}
+            />
+            <FaSearch style={{ position: 'absolute', left: '0.8rem', top: '0.85rem', color: '#94a3b8' }} />
+          </div>
+        </div>
+
+        {/* Template Catalog Grid */}
+        <div className="reg-templates-grid">
+          {filteredTemplates.map(form => {
+            let fieldCount = 0;
+            try {
+              const parsed = JSON.parse(form.schema);
+              fieldCount = countAllFields(parsed.fields || []);
+            } catch {
+              fieldCount = 0;
+            }
+
+            const isLive = form.status === 'LIVE';
+
+            return (
+              <div key={form.id} className={`reg-template-card ${isLive ? 'is-live' : ''}`}>
+                <div>
+                  <div className="reg-card-top">
+                    <div className="reg-card-title-area">
+                      <h3 className="reg-card-title">{form.name}</h3>
+                      <div className="reg-card-meta">
+                        <span className="reg-card-meta-item">Version {form.version}</span>
+                        <span>•</span>
+                        <span className="reg-card-meta-item">{fieldCount} Field{fieldCount === 1 ? '' : 's'}</span>
+                      </div>
+                    </div>
+                    <span className={`reg-status-pill ${form.status.toLowerCase()}`}>
+                      {isLive && <span className="reg-pulse-dot" />}
+                      {form.status}
+                    </span>
+                  </div>
+
+                  <p style={{ margin: '0.75rem 0 0 0', fontSize: '0.8rem', color: '#64748b' }}>
+                    Created: {new Date(form.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </p>
+                </div>
+
+                <div className="reg-card-actions">
+                  <button 
+                    type="button"
+                    className="btn-editor preview" 
+                    style={{ flex: 1 }} 
+                    onClick={() => openForm(form)}
+                    title={`Open builder console for ${form.name}`}
+                  >
+                    <FaEdit /> Edit Form
+                  </button>
+                  {!isLive && (
+                    <button 
+                      type="button"
+                      className="btn-field-action danger" 
+                      disabled={deletingFormId === form.id}
+                      onClick={() => deleteForm(form.id)}
+                      title={`Delete ${form.name}`}
+                    >
+                      {deletingFormId === form.id ? (
+                        <FaSpinner className="spin" />
+                      ) : (
+                        <FaTrash />
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
