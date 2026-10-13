@@ -656,9 +656,10 @@ export default function RegistrationBuilder() {
             </button>
             <button 
               type="button"
-              className="btn-field-action danger" 
+              className="btn-field-action btn-danger-action" 
               onClick={(e) => { e.stopPropagation(); handleDeleteField(field.id); }}
               title="Delete Field"
+              aria-label="Delete Field"
             >
               <FaTrash />
             </button>
@@ -1381,10 +1382,11 @@ export default function RegistrationBuilder() {
                   {!isLive && (
                     <button 
                       type="button"
-                      className="btn-field-action danger" 
+                      className="btn-field-action btn-danger-action" 
                       disabled={deletingFormId === form.id}
                       onClick={() => deleteForm(form.id)}
                       title={`Delete ${form.name}`}
+                      aria-label={`Delete ${form.name}`}
                     >
                       {deletingFormId === form.id ? (
                         <FaSpinner className="spin" />

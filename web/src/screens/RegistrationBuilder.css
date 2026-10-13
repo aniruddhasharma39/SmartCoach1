@@ -727,40 +727,80 @@
   flex-shrink: 0;
 }
 
+button.btn-field-action,
 .btn-field-action {
-  width: 32px;
-  height: 32px;
-  border-radius: 7px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #64748b;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  width: 32px !important;
+  height: 32px !important;
+  min-width: 32px !important;
+  min-height: 32px !important;
+  max-width: 32px !important;
+  max-height: 32px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: #64748b !important;
+  font-size: 0.85rem !important;
+  cursor: pointer !important;
+  box-shadow: none !important;
+  transform: none !important;
+  box-sizing: border-box !important;
+  transition: all 0.15s ease !important;
 }
 
+button.btn-field-action svg,
+.btn-field-action svg {
+  width: 14px !important;
+  height: 14px !important;
+  display: block !important;
+  flex-shrink: 0 !important;
+  color: inherit !important;
+  fill: currentColor !important;
+}
+
+button.btn-field-action:hover,
 .btn-field-action:hover {
-  background: #f1f5f9;
-  color: var(--text-main, #0f172a);
-  border-color: #e2e8f0;
+  background: #f1f5f9 !important;
+  color: var(--text-main, #0f172a) !important;
+  border-color: #cbd5e1 !important;
 }
 
+/* Delete / Danger field action button */
+button.btn-field-action.btn-danger-action,
+button.btn-field-action.danger,
+.btn-field-action.btn-danger-action,
+.btn-field-action.danger {
+  background: #fee2e2 !important;
+  color: #dc2626 !important;
+  border: 1px solid #fecaca !important;
+  box-shadow: none !important;
+}
+
+button.btn-field-action.btn-danger-action:hover,
+button.btn-field-action.danger:hover,
+.btn-field-action.btn-danger-action:hover,
 .btn-field-action.danger:hover {
-  background: #fee2e2;
-  color: #dc2626;
-  border-color: #fecaca;
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25) !important;
 }
 
+button.btn-field-action.primary-action,
 .btn-field-action.primary-action {
-  color: var(--primary, #0b3c7a);
+  color: var(--primary, #0b3c7a) !important;
+  background: rgba(11, 60, 122, 0.08) !important;
+  border-color: rgba(11, 60, 122, 0.2) !important;
 }
 
+button.btn-field-action:disabled,
 .btn-field-action:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
+  opacity: 0.3 !important;
+  cursor: not-allowed !important;
 }
 
 /* --------------------------------------------------------------------------

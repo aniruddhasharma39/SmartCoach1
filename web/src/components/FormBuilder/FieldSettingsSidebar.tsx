@@ -245,9 +245,10 @@ export default function FieldSettingsSidebar({ field, updateField, close }: Prop
                   />
                   <button 
                     type="button"
-                    className="btn-field-action danger" 
+                    className="btn-field-action btn-danger-action" 
                     onClick={() => removeOption(i)}
                     title="Remove option"
+                    aria-label="Remove option"
                   >
                     <FaTrash />
                   </button>
