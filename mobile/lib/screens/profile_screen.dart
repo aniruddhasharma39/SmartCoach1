@@ -154,6 +154,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } else if (_profile['metadata'] is String) {
           metadata = json.decode(_profile['metadata']);
         }
+      }
     } catch (_) {}
 
     final coreExclude = {
