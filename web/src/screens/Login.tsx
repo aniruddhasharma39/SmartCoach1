@@ -47,7 +47,12 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
   const [hasPhoneField, setHasPhoneField] = useState(true);
 
   // Branding
-  const [branding, setBranding] = useState({ appName: 'LC Platform', wallpaperUrl: '' });
+  const [branding, setBranding] = useState<{
+    appName: string;
+    wallpaperUrl?: string;
+    logoUrl?: string;
+    loginGradient?: string;
+  }>({ appName: 'LC Platform', wallpaperUrl: '', logoUrl: '', loginGradient: 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)' });
 
   useEffect(() => {
     fetch(`${API_URL}/api/v1/settings/branding`)
@@ -218,10 +223,8 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
       className="flex items-center justify-center w-full"
       style={{
         minHeight: '100vh',
-        backgroundImage: branding.wallpaperUrl ? `url(${branding.wallpaperUrl})` : 'none',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        padding: '1rem',
+        background: branding.loginGradient || 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)',
+        padding: '1.5rem',
       }}
     >
       <div
@@ -229,16 +232,32 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
         style={{
           width: '100%',
           maxWidth: '440px',
-          backgroundColor: 'rgba(255,255,255,0.96)',
-          backdropFilter: 'blur(16px)',
-          boxShadow: '0 20px 40px rgba(0,0,0,0.12)',
-          borderRadius: '16px',
-          padding: '2rem',
-          border: '1px solid rgba(255,255,255,0.6)',
+          backgroundColor: 'rgba(255,255,255,0.98)',
+          backdropFilter: 'blur(20px)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          borderRadius: '20px',
+          padding: '2.5rem 2rem 2rem 2rem',
+          border: '1px solid rgba(255,255,255,0.8)',
         }}
       >
         <div className="text-center mb-6">
-          <h2 style={{ color: 'var(--primary)', margin: '0 0 0.5rem 0', fontWeight: 800 }}>
+          {(branding.logoUrl || branding.wallpaperUrl) && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1.25rem' }}>
+              <img
+                src={branding.logoUrl || branding.wallpaperUrl}
+                alt={branding.appName}
+                style={{
+                  maxHeight: '90px',
+                  maxWidth: '160px',
+                  width: 'auto',
+                  height: 'auto',
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.12))',
+                }}
+              />
+            </div>
+          )}
+          <h2 style={{ color: 'var(--primary)', margin: '0 0 0.5rem 0', fontWeight: 800, fontSize: '1.65rem' }}>
             {branding.appName}
           </h2>
           <p className="text-sm text-muted m-0">

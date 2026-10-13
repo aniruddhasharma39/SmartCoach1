@@ -20,16 +20,21 @@ const getBrandingHandler = async (req: any, res: any, next: any) => {
   try {
     const appName = await prisma.appSetting.findUnique({ where: { key: 'APP_NAME' } });
     const wallpaper = await prisma.appSetting.findUnique({ where: { key: 'WALLPAPER_URL' } });
+    const gradient = await prisma.appSetting.findUnique({ where: { key: 'LOGIN_GRADIENT' } });
     
     res.json({
       appName: appName?.value || 'LC Platform',
-      wallpaperUrl: wallpaper?.value || null
+      wallpaperUrl: wallpaper?.value || null,
+      logoUrl: wallpaper?.value || null,
+      loginGradient: gradient?.value || 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)'
     });
   } catch (error) {
     console.warn('Database momentarily unreachable for branding, returning default configuration:', error);
     res.json({
       appName: 'LC Platform',
-      wallpaperUrl: null
+      wallpaperUrl: null,
+      logoUrl: null,
+      loginGradient: 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)'
     });
   }
 };
@@ -40,6 +45,7 @@ router.get('/', getBrandingHandler);
 // Admin: Update Branding
 const updateBrandingSchema = z.object({
   appName: z.string().optional(),
+  loginGradient: z.string().optional(),
 });
 
 router.put('/branding', authenticate, requireModule('branding'), upload.single('wallpaper'), async (req, res, next) => {
@@ -60,7 +66,7 @@ router.put('/branding', authenticate, requireModule('branding'), upload.single('
       });
     }
 
-    const { appName } = req.body;
+    const { appName, loginGradient } = req.body;
 
     await prisma.$transaction(async (tx) => {
       if (appName) {
@@ -78,14 +84,25 @@ router.put('/branding', authenticate, requireModule('branding'), upload.single('
           create: { key: 'WALLPAPER_URL', value: wallpaperUrl }
         });
       }
+
+      if (loginGradient) {
+        await tx.appSetting.upsert({
+          where: { key: 'LOGIN_GRADIENT' },
+          update: { value: loginGradient },
+          create: { key: 'LOGIN_GRADIENT', value: loginGradient }
+        });
+      }
     });
 
     const updatedAppName = await prisma.appSetting.findUnique({ where: { key: 'APP_NAME' } });
     const updatedWallpaper = await prisma.appSetting.findUnique({ where: { key: 'WALLPAPER_URL' } });
+    const updatedGradient = await prisma.appSetting.findUnique({ where: { key: 'LOGIN_GRADIENT' } });
 
     res.json({
       appName: updatedAppName?.value || 'LC Platform',
-      wallpaperUrl: updatedWallpaper?.value || null
+      wallpaperUrl: updatedWallpaper?.value || null,
+      logoUrl: updatedWallpaper?.value || null,
+      loginGradient: updatedGradient?.value || 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)'
     });
   } catch (error) {
     next(error);
