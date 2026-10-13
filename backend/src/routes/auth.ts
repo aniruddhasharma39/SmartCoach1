@@ -6,6 +6,7 @@ import multer from 'multer';
 import { v2 as cloudinary } from 'cloudinary';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
+import { send2FactorSmsOtp } from '../lib/twofactor';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -346,9 +347,19 @@ router.post('/otp/send', async (req, res, next) => {
       return res.status(403).json({ error: 'Account is deactivated. Please contact your administrator.' });
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    let otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
     const targetIdentifier = type === 'email' ? cleanId.toLowerCase() : cleanId.replace(/\D/g, '');
+
+    // For Phone OTP: Dispatch SMS text message via 2Factor TSMS using approved DLT template (MIRTHA)
+    if (type === 'phone') {
+      const smsResult = await send2FactorSmsOtp(targetIdentifier, otp);
+      if (!smsResult.success) {
+        return res.status(502).json({
+          error: `Failed to deliver SMS text via 2Factor.in: ${smsResult.details || 'Gateway error'}. Please check your phone number and 2Factor account credits.`
+        });
+      }
+    }
 
     await prisma.otpVerification.deleteMany({
       where: { identifier: targetIdentifier, type: type.toUpperCase() }
@@ -365,7 +376,7 @@ router.post('/otp/send', async (req, res, next) => {
     });
 
     console.log(`\n=================================================`);
-    console.log(`🔐 [OTP DISPATCH] Method: ${type.toUpperCase()}`);
+    console.log(`🔐 [OTP DISPATCH] Method: ${type.toUpperCase()} (SMS TEXT)`);
     console.log(`📱 Recipient: ${targetIdentifier}`);
     console.log(`🔑 Verification Code: ${otp}`);
     console.log(`⏱️  Valid for: 10 minutes`);
@@ -373,7 +384,9 @@ router.post('/otp/send', async (req, res, next) => {
 
     res.json({
       success: true,
-      message: `OTP has been sent to your registered ${type === 'email' ? 'email' : 'mobile number'}.`,
+      message: type === 'phone'
+        ? `OTP has been sent to your registered mobile number as an SMS text message.`
+        : `OTP has been sent to your registered email address.`,
       expiresInSeconds: 600,
       demoOtp: otp
     });
