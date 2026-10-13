@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import type { FormField, FormSchema } from '../../types/form';
 
 type Props = {
@@ -6,11 +7,20 @@ type Props = {
   roles?: any[]; // if allowRoles is true
   onSubmit: (data: any) => void;
   isSubmitting?: boolean;
+  requirePassword?: boolean;
 };
 
-export default function FormRenderer({ schema, roles, onSubmit, isSubmitting }: Props) {
+export default function FormRenderer({ schema, roles, onSubmit, isSubmitting, requirePassword = true }: Props) {
   const [formData, setFormData] = useState<Record<string, any>>({});
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const isExcludedField = (field: FormField) => {
+    return requirePassword && (field.name === 'password' || field.name === 'confirmPassword');
+  };
 
   const validateField = (field: FormField, val: any): string | null => {
     if (field.required && (!val || val.length === 0)) return 'This field is required';
@@ -41,6 +51,7 @@ export default function FormRenderer({ schema, roles, onSubmit, isSubmitting }: 
 
     const checkFields = (list: FormField[]) => {
       for (const f of list) {
+        if (isExcludedField(f)) continue;
         if (f.type === 'section') {
           if (f.children) checkFields(f.children);
           continue;
@@ -59,21 +70,47 @@ export default function FormRenderer({ schema, roles, onSubmit, isSubmitting }: 
       newErrors['roleId'] = 'Role selection is required';
     }
 
+    if (requirePassword) {
+      if (!password || password.trim().length === 0) {
+        hasErrors = true;
+        newErrors['password'] = 'Password is required';
+      } else if (password.length < 6) {
+        hasErrors = true;
+        newErrors['password'] = 'Password must be at least 6 characters';
+      }
+
+      if (!confirmPassword || confirmPassword.trim().length === 0) {
+        hasErrors = true;
+        newErrors['confirmPassword'] = 'Confirm Password is required';
+      } else if (password !== confirmPassword) {
+        hasErrors = true;
+        newErrors['confirmPassword'] = 'Passwords do not match';
+      }
+    }
+
     if (hasErrors) {
       setErrors(newErrors);
       return;
     }
-    onSubmit(formData);
+
+    const payload = {
+      ...formData,
+      ...(requirePassword ? { password } : {})
+    };
+    onSubmit(payload);
   };
 
   const renderField = (field: FormField) => {
+    if (isExcludedField(field)) return null;
+
     if (field.type === 'section') {
+      const visibleChildren = field.children?.filter(c => !isExcludedField(c));
       return (
         <div key={field.id} style={{ marginBottom: 24 }}>
           <h3 style={{ borderBottom: '1px solid var(--border)', paddingBottom: 8, marginBottom: 16 }}>{field.label}</h3>
           {field.helperText && <p className="text-muted text-sm mb-4">{field.helperText}</p>}
           <div className="flex-col gap-4">
-            {field.children?.map(renderField)}
+            {visibleChildren?.map(renderField)}
           </div>
         </div>
       );
@@ -208,6 +245,108 @@ export default function FormRenderer({ schema, roles, onSubmit, isSubmitting }: 
             ))}
           </select>
           {errors.roleId && <div className="text-danger text-sm mt-1">{errors.roleId}</div>}
+        </div>
+      )}
+
+      {requirePassword && (
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, marginTop: 8 }}>
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
+              Password <span className="text-danger">*</span>
+            </label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input 
+                type={showPassword ? 'text' : 'password'} 
+                placeholder="Create a password (min 6 characters)"
+                value={password}
+                autoComplete="new-password"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errors.password) {
+                    setErrors(p => ({ ...p, password: '' }));
+                  }
+                }}
+                style={{ 
+                  borderColor: errors.password ? 'var(--danger)' : undefined, 
+                  width: '100%', 
+                  padding: '10px 42px 10px 12px',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(p => !p)}
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  background: 'none',
+                  border: 'none',
+                  padding: 4,
+                  cursor: 'pointer',
+                  color: 'var(--muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.05rem',
+                  lineHeight: 1
+                }}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <FaEyeSlash /> : <FaEye />}
+              </button>
+            </div>
+            {errors.password && <div className="text-danger text-sm mt-1">{errors.password}</div>}
+          </div>
+
+          <div className="form-group" style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 500 }}>
+              Confirm Password <span className="text-danger">*</span>
+            </label>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input 
+                type={showConfirmPassword ? 'text' : 'password'} 
+                placeholder="Re-enter password to confirm"
+                value={confirmPassword}
+                autoComplete="new-password"
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  if (errors.confirmPassword) {
+                    setErrors(p => ({ ...p, confirmPassword: '' }));
+                  }
+                }}
+                style={{ 
+                  borderColor: errors.confirmPassword ? 'var(--danger)' : undefined, 
+                  width: '100%', 
+                  padding: '10px 42px 10px 12px',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(p => !p)}
+                style={{
+                  position: 'absolute',
+                  right: 10,
+                  background: 'none',
+                  border: 'none',
+                  padding: 4,
+                  cursor: 'pointer',
+                  color: 'var(--muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.05rem',
+                  lineHeight: 1
+                }}
+                title={showConfirmPassword ? 'Hide password' : 'Show password'}
+                aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
+              >
+                {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
+              </button>
+            </div>
+            {errors.confirmPassword && <div className="text-danger text-sm mt-1">{errors.confirmPassword}</div>}
+          </div>
         </div>
       )}
 

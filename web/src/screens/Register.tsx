@@ -12,8 +12,7 @@ const DEFAULT_FALLBACK_SCHEMA = {
     { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, placeholder: '10-digit mobile number' },
     { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, placeholder: 'name@example.com' },
     { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, placeholder: 'e.g. EMP-101' },
-    { id: '5', type: 'text', name: 'department', label: 'Department', required: true, placeholder: 'e.g. Engineering' },
-    { id: '6', type: 'password', name: 'password', label: 'Password', required: true, placeholder: 'Create a password' }
+    { id: '5', type: 'text', name: 'department', label: 'Department', required: true, placeholder: 'e.g. Engineering' }
   ],
   allowRoles: true
 };
@@ -154,6 +153,7 @@ export default function Register({ onGoToLogin }: Props) {
             roles={roles} 
             onSubmit={handleSubmit} 
             isSubmitting={isLoading} 
+            requirePassword={true}
           />
         )}
 
