@@ -36,6 +36,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _currentView = 'home';
   String _appName = 'LC Platform';
 
+  // Manage Users Search & Filter State
+  final _userSearchCtrl = TextEditingController();
+  String _userSearchQuery = '';
+  String _userStatusFilter = 'ALL';
+
   // Notifications State
   List<dynamic> _notifications = [];
   int _unreadNotifsCount = 0;
@@ -56,6 +61,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _notifsTimer?.cancel();
+    _userSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -1153,26 +1159,188 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String? _expandedRole;
 
+  Widget _buildStatusFilterChip(String status, String label) {
+    final isSelected = _userStatusFilter == status;
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11.5,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          color: isSelected ? Colors.white : Colors.grey.shade700,
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: AppColors.primary,
+      backgroundColor: Colors.grey.shade100,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: isSelected ? AppColors.primary : Colors.grey.shade300),
+      ),
+      onSelected: (_) {
+        setState(() => _userStatusFilter = status);
+      },
+    );
+  }
+
   Widget _buildExistingUsersTab() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
+
+    // Filter users based on search query and status filter
+    final filteredUsers = _users.where((u) {
+      if (u['status'] == 'PENDING') return false;
+
+      // Status filter
+      if (_userStatusFilter != 'ALL' && u['status'] != _userStatusFilter) {
+        return false;
+      }
+
+      // Search query
+      if (_userSearchQuery.trim().isNotEmpty) {
+        final q = _userSearchQuery.trim().toLowerCase();
+        final name = (u['fullName'] ?? '').toString().toLowerCase();
+        final empId = (u['employeeId'] ?? '').toString().toLowerCase();
+        final dept = (u['department'] ?? '').toString().toLowerCase();
+        final email = (u['email'] ?? '').toString().toLowerCase();
+        final mobile = (u['mobile'] ?? '').toString().toLowerCase();
+        final role = (u['role']?['name'] ?? '').toString().toLowerCase();
+
+        final matches = name.contains(q) ||
+            empId.contains(q) ||
+            dept.contains(q) ||
+            email.contains(q) ||
+            mobile.contains(q) ||
+            role.contains(q);
+
+        if (!matches) return false;
+      }
+
+      return true;
+    }).toList();
     
     final Map<String, List<dynamic>> grouped = {};
-    for (var u in _users) {
-      if (u['status'] == 'PENDING') continue;
+    for (var u in filteredUsers) {
       final rn = u['role']?['name'] ?? 'Unknown';
       if (!grouped.containsKey(rn)) grouped[rn] = [];
       grouped[rn]!.add(u);
     }
     
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: grouped.entries.map((e) {
-        final isExpanded = _expandedRole == e.key;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
+    return Column(
+      children: [
+        // Search & Filter Header
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          color: Colors.white,
           child: Column(
             children: [
-              ListTile(
+              // Search Input Field
+              TextField(
+                controller: _userSearchCtrl,
+                onChanged: (val) {
+                  setState(() => _userSearchQuery = val);
+                },
+                decoration: InputDecoration(
+                  hintText: 'Search by name, ID, email, or dept...',
+                  hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                  prefixIcon: const Icon(Icons.search, size: 20, color: AppColors.primary),
+                  suffixIcon: _userSearchQuery.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            _userSearchCtrl.clear();
+                            setState(() => _userSearchQuery = '');
+                          },
+                        )
+                      : null,
+                  filled: true,
+                  fillColor: Colors.grey.shade50,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Filter Chips Row
+              Row(
+                children: [
+                  const Text('Status: ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(width: 4),
+                  Wrap(
+                    spacing: 6,
+                    children: [
+                      _buildStatusFilterChip('ALL', 'All (${_users.where((u) => u['status'] != 'PENDING').length})'),
+                      _buildStatusFilterChip('APPROVED', 'Active'),
+                      _buildStatusFilterChip('DEACTIVATED', 'Deactivated'),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+
+        // List Content
+        Expanded(
+          child: grouped.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.search_off_rounded, size: 48, color: Colors.grey.shade400),
+                        const SizedBox(height: 12),
+                        Text(
+                          'No users match your filters',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey.shade700),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Try searching with a different keyword or reset filters.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
+                        ),
+                        if (_userSearchQuery.isNotEmpty || _userStatusFilter != 'ALL') ...[
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            icon: const Icon(Icons.refresh, size: 16),
+                            label: const Text('Reset Filters'),
+                            onPressed: () {
+                              _userSearchCtrl.clear();
+                              setState(() {
+                                _userSearchQuery = '';
+                                _userStatusFilter = 'ALL';
+                              });
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: grouped.entries.map((e) {
+                    final isExpanded = _expandedRole == e.key;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: Column(
+                        children: [
+                          ListTile(
                 onTap: () {
                   setState(() {
                     _expandedRole = isExpanded ? null : e.key;
