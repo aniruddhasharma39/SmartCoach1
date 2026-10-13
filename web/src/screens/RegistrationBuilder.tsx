@@ -552,7 +552,12 @@ export default function RegistrationBuilder() {
   const handleDeleteField = (id: string) => {
     if (confirm('Delete this field? If it is a section, all nested fields will also be deleted.')) {
       setFields(prev => removeNode(prev, id).newList);
-      if (activeFieldId === id) setActiveFieldId(null);
+      if (activeFieldId === id) {
+        setActiveFieldId(null);
+        if (activeMobileTab === 'properties') {
+          setActiveMobileTab('canvas');
+        }
+      }
       showToast('Field deleted');
     }
   };
@@ -598,6 +603,19 @@ export default function RegistrationBuilder() {
               <FaGripVertical />
             </div>
 
+            {/* Aligned Left Corner * Req / Section Badge */}
+            <div className="field-req-corner-slot">
+              {isSection ? (
+                <span className="section-icon-badge" title="Section Container">
+                  <FaFolder />
+                </span>
+              ) : field.required ? (
+                <span className="field-req-corner-badge" title="Required Mandatory Field">
+                  * Req
+                </span>
+              ) : null}
+            </div>
+
             <div className="field-title-badge-group">
               <span className="field-name-title">
                 {field.label || 'Untitled Field'}
@@ -609,9 +627,6 @@ export default function RegistrationBuilder() {
                 <span className="field-key-slug">
                   {field.name}
                 </span>
-              )}
-              {field.required && (
-                <span className="field-req-star" title="Mandatory">* Req</span>
               )}
             </div>
           </div>
@@ -870,13 +885,28 @@ export default function RegistrationBuilder() {
           >
             <FaPlus /> + Add Field
           </button>
-          <button 
-            type="button"
-            className={`reg-mobile-tab-btn ${activeMobileTab === 'properties' ? 'active' : ''}`}
-            onClick={() => setActiveMobileTab('properties')}
+          <div 
+            className="reg-mobile-tab-wrapper"
+            title={!activeField ? "Please select a field" : `Properties: ${activeField.label}`}
+            data-tooltip={!activeField ? "Please select a field" : undefined}
+            data-tooltip-pos="bottom"
           >
-            <FaCog /> Properties {activeField ? `(${activeField.label.slice(0, 10)})` : ''}
-          </button>
+            <button 
+              type="button"
+              className={`reg-mobile-tab-btn ${activeMobileTab === 'properties' ? 'active' : ''} ${!activeField ? 'disabled' : ''}`}
+              disabled={!activeField}
+              title={!activeField ? "Please select a field" : `Properties: ${activeField.label}`}
+              onClick={() => {
+                if (!activeField) {
+                  showToast('Please select a field first', 'info');
+                  return;
+                }
+                setActiveMobileTab('properties');
+              }}
+            >
+              <FaCog /> Properties {activeField ? `(${activeField.label.slice(0, 10)})` : ''}
+            </button>
+          </div>
           <button 
             type="button"
             className={`reg-mobile-tab-btn ${activeMobileTab === 'settings' ? 'active' : ''}`}
@@ -1057,7 +1087,7 @@ export default function RegistrationBuilder() {
           </div>
 
           {/* RIGHT INSPECTOR PANEL: Visible on Desktop (if activeField exists) or when mobile tab is 'properties' */}
-          {activeField && (
+          {activeField ? (
             <div 
               style={{ 
                 display: window.innerWidth <= 1024 && activeMobileTab !== 'properties' ? 'none' : 'flex' 
@@ -1083,6 +1113,40 @@ export default function RegistrationBuilder() {
                 }} 
               />
             </div>
+          ) : (
+            activeMobileTab === 'properties' && (
+              <div 
+                className="builder-canvas-panel" 
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center', 
+                  width: '100%',
+                  padding: '2rem 1rem'
+                }}
+              >
+                <div className="canvas-empty-state" style={{ maxWidth: '440px', width: '100%', margin: '2rem auto' }}>
+                  <div className="canvas-empty-icon" style={{ background: 'rgba(11, 60, 122, 0.08)', color: 'var(--primary, #0b3c7a)' }}>
+                    <FaCog />
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.2rem', color: '#0f172a' }}>
+                      No Field Selected
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.875rem', color: '#64748b' }}>
+                      Please select a field from the Canvas or tap its gear icon ⚙️ to view and customize its properties.
+                    </p>
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn-editor save" 
+                    onClick={() => setActiveMobileTab('canvas')}
+                  >
+                    <FaWpforms /> Return to Canvas
+                  </button>
+                </div>
+              </div>
+            )
           )}
 
           {/* MOBILE FORM SETTINGS TAB: Displayed when mobile tab is 'settings' */}
