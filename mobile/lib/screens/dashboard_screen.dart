@@ -1451,25 +1451,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             child: const Text('Confirm', style: TextStyle(color: Colors.white)),
                                           ),
                                         ],
-                                      )
+                                      ),
                                     );
                                     if (confirm == true) {
                                       _actionUser(u['id'], actionName);
                                     }
                                   },
                                 ),
-                              )
+                              ),
                             ],
                           ),
                         ),
                       );
                     }).toList(),
                   ),
-                )
+                ),
             ],
-          )
+          ),
         );
       }).toList(),
-    );
-  }
+    ),
+  ),
+],
+);
 }
+}
+
+
+
