@@ -47,6 +47,7 @@ interface RegistrationRequestItem {
   formId: number;
   data: string;
   requestedRoleId?: number;
+  requestedRoleName?: string;
   status: string;
   createdAt?: string;
   form?: {
@@ -107,14 +108,22 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
         setUsers(uData.users || []);
         setPendingRequests(uData.pendingRequests || []);
 
-        // Pre-fill pending role selections
+        // Pre-fill pending role selections based on user request
         const initialRolesMap: Record<number, number> = {};
         (uData.pendingRequests || []).forEach((req: RegistrationRequestItem) => {
-          if (req.requestedRoleId) {
-            initialRolesMap[req.id] = req.requestedRoleId;
+          let rId = req.requestedRoleId;
+          if (!rId && req.data) {
+            try {
+              const d = JSON.parse(req.data);
+              if (d.roleId) rId = Number(d.roleId);
+              else if (d.requestedRoleId) rId = Number(d.requestedRoleId);
+            } catch {}
+          }
+          if (rId) {
+            initialRolesMap[req.id] = rId;
           }
         });
-        setPendingRoleSelection(initialRolesMap);
+        setPendingRoleSelection(prev => ({ ...initialRolesMap, ...prev }));
       }
 
       if (rolesRes.ok) {
@@ -150,17 +159,23 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
   // Humanize dictionary keys for display
   const humanizeKey = (key: string) => {
     const cleanKey = key.trim();
-    if (cleanKey === 'fullName') return 'Full Name';
-    if (cleanKey === 'mobile' || cleanKey === 'phone') return 'Mobile Number';
-    if (cleanKey === 'email') return 'Email Address';
-    if (cleanKey === 'employeeId') return 'Employee ID';
-    if (cleanKey === 'department') return 'Department';
-    if (cleanKey === 'gender') return 'Gender';
+    const normalized = cleanKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalized === 'fullname' || normalized === 'name') return 'Full Name';
+    if (normalized === 'mobile' || normalized === 'phone' || normalized === 'mobilenumber' || normalized === 'phonenumber') return 'Mobile Number';
+    if (normalized === 'email' || normalized === 'emailaddress') return 'Email Address';
+    if (normalized === 'employeeid' || normalized === 'empid') return 'Employee ID';
+    if (normalized === 'department' || normalized === 'dept') return 'Department';
+    if (normalized === 'gender') return 'Gender';
     if (cleanKey.startsWith('field_')) {
       const sub = cleanKey.substring(6);
       return sub.length > 6 ? `Custom Field (${sub.substring(sub.length - 4)})` : `Custom Field (${sub})`;
     }
-    return cleanKey.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^./, str => str.toUpperCase());
+    return cleanKey
+      .replace(/_/g, ' ')
+      .replace(/([A-Z]+)/g, ' $1')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b[a-z]/g, str => str.toUpperCase());
   };
 
   const isImgUrl = (val: any) => {
@@ -326,27 +341,47 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
     let fullName = reqData.fullName || reqData.name || '';
     const textDetails: [string, any][] = [];
     const imageDetails: [string, any][] = [];
+    const seenLabels = new Set<string>(['password', 'roleid', 'role_id', 'role', 'status']);
+    const seenValues = new Set<string>();
 
     for (const [k, v] of Object.entries(reqData)) {
-      if (k === 'password') continue;
+      if (k.toLowerCase().includes('password')) continue;
       const field = allFields.find(f => f.name === k);
       const label = field ? field.label : humanizeKey(k);
+      const normLabel = label.toLowerCase().replace(/[^a-z0-9]/g, '');
 
       if (!fullName && field && field.label.toLowerCase().includes('name')) {
         fullName = v;
       }
 
+      if (['fullname', 'name', 'applicantname'].includes(normLabel)) {
+        if (!fullName) fullName = v;
+        continue;
+      }
+
       if (isImgUrl(v)) {
         imageDetails.push([label, v]);
-      } else {
-        textDetails.push([label, v]);
+      } else if (v !== null && v !== undefined && v !== '') {
+        const strVal = String(v).trim().toLowerCase();
+        if (!seenLabels.has(normLabel) && !seenValues.has(strVal)) {
+          seenLabels.add(normLabel);
+          seenValues.add(strVal);
+          textDetails.push([label, v]);
+        }
       }
+    }
+
+    let reqRoleId = req.requestedRoleId;
+    if (!reqRoleId) {
+      if (reqData.roleId) reqRoleId = Number(reqData.roleId);
+      else if (reqData.requestedRoleId) reqRoleId = Number(reqData.requestedRoleId);
     }
 
     return {
       fullName: fullName || 'Applicant',
       textDetails,
       imageDetails,
+      reqRoleId,
     };
   };
 
@@ -800,30 +835,56 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
                           metadataObj = {};
                         }
 
-                        // Separate clean text details from image previews
+                        // Separate clean text details from image previews with deduplication
                         const textDetails: [string, any][] = [];
                         const imageDocs: [string, string][] = [];
+                        const seenLabels = new Set<string>([
+                          'fullname', 'name', 'applicantname',
+                          'role', 'roleid', 'status', 'id', 'password'
+                        ]);
+                        const seenValues = new Set<string>();
 
-                        // Add primary attributes if not already in metadata
-                        if (u.mobile) textDetails.push(['Mobile Number', u.mobile]);
-                        if (u.email) textDetails.push(['Email Address', u.email]);
-                        if (u.employeeId) textDetails.push(['Employee ID', u.employeeId]);
-                        if (u.department) textDetails.push(['Department', u.department]);
+                        const addDetail = (label: string, val: any) => {
+                          if (val === null || val === undefined || val === '') return;
+                          const normLabel = label.toLowerCase().replace(/[^a-z0-9]/g, '');
+                          const strVal = String(val).trim().toLowerCase();
+                          if (seenLabels.has(normLabel)) return;
+                          if (seenValues.has(strVal)) return;
+
+                          seenLabels.add(normLabel);
+                          seenValues.add(strVal);
+                          textDetails.push([label, val]);
+                        };
+
+                        // Add primary attributes (deduplicating against repeated metadata)
+                        if (u.mobile) addDetail('Mobile Number', u.mobile);
+                        if (u.email) addDetail('Email Address', u.email);
+                        if (u.employeeId) addDetail('Employee ID', u.employeeId);
+                        if (u.department) addDetail('Department', u.department);
+
+                        const coreFields = [
+                          'fullname', 'name', 'applicantname',
+                          'mobile', 'mobilenumber', 'phone', 'phonenumber',
+                          'email', 'emailaddress',
+                          'employeeid', 'empid',
+                          'department', 'dept',
+                          'role', 'roleid', 'status', 'password', 'id'
+                        ];
 
                         for (const [k, v] of Object.entries(metadataObj)) {
-                          const kLower = k.toLowerCase();
-                          // Filter out internal/duplicate fields
-                          if (kLower.includes('password')) continue;
-                          if (kLower.startsWith('field_')) continue;
-                          if (kLower === 'roleid' || kLower === 'role_id') continue;
-                          if (kLower === 'role') continue;
-                          if (['fullname', 'mobile', 'email', 'employeeid', 'department'].includes(kLower)) continue;
+                          const normKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                          if (normKey.includes('password')) continue;
+                          if (normKey.startsWith('field')) continue;
+                          if (coreFields.includes(normKey)) continue;
 
                           const label = humanizeKey(k);
+                          const normLabel = label.toLowerCase().replace(/[^a-z0-9]/g, '');
+                          if (coreFields.includes(normLabel)) continue;
+
                           if (isImgUrl(v)) {
                             imageDocs.push([label, String(v)]);
-                          } else if (v !== null && v !== undefined && v !== '') {
-                            textDetails.push([label, v]);
+                          } else {
+                            addDetail(label, v);
                           }
                         }
 
@@ -999,11 +1060,13 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
             </div>
           ) : (
             pendingRequests.map(req => {
-              const { fullName, textDetails, imageDetails } = parseRequestData(req);
+              const { fullName, textDetails, imageDetails, reqRoleId } = parseRequestData(req);
               const isApproving = actionLoading?.id === req.id && actionLoading?.action === 'approve';
               const isRejecting = actionLoading?.id === req.id && actionLoading?.action === 'reject';
               const isBusy = isApproving || isRejecting;
-              const selectedRoleId = pendingRoleSelection[req.id] || req.requestedRoleId || roles[0]?.id;
+              const effectiveReqRoleId = reqRoleId || req.requestedRoleId;
+              const reqRoleName = req.requestedRoleName || roles.find(r => r.id === effectiveReqRoleId)?.name;
+              const selectedRoleId = pendingRoleSelection[req.id] || effectiveReqRoleId || roles[0]?.id;
 
               return (
                 <div key={req.id} className="pending-request-card">
@@ -1022,6 +1085,12 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
                           </span>
                         </div>
                         <div className="user-sub-tags">
+                          {reqRoleName && (
+                            <span className="request-meta-badge" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', fontWeight: 600 }}>
+                              <FaShieldAlt style={{ marginRight: 4 }} />
+                              Requested Role: {reqRoleName}
+                            </span>
+                          )}
                           {req.form?.name && (
                             <span className="request-meta-badge">
                               Form: {req.form.name}
@@ -1052,7 +1121,7 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
                       >
                         {roles.map(r => (
                           <option key={r.id} value={r.id}>
-                            Role: {r.name}
+                            Role: {r.name}{r.id === effectiveReqRoleId ? ' (Requested)' : ''}
                           </option>
                         ))}
                       </select>

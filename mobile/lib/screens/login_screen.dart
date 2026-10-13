@@ -3,13 +3,15 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import '../main.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
+  final Map<String, dynamic>? initialBranding;
   final Function(Map<String, dynamic> user, String token) onLogin;
-  const LoginScreen({super.key, required this.onLogin});
+  const LoginScreen({super.key, this.initialBranding, required this.onLogin});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -51,13 +53,23 @@ class _LoginScreenState extends State<LoginScreen> {
   String _successMsg = '';
   bool _hasEmailField = true;
   bool _hasPhoneField = true;
-  Map<String, dynamic> _branding = {'appName': 'LC Platform', 'wallpaperUrl': null};
+  late Map<String, dynamic> _branding;
 
   @override
   void initState() {
     super.initState();
-    _fetchBranding();
+    _branding = widget.initialBranding ?? {'appName': 'LC Platform', 'wallpaperUrl': null};
+    _loadCachedBranding();
     _fetchFormCapabilities();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final logoUrl = _branding['logoUrl'] ?? _branding['wallpaperUrl'];
+    if (logoUrl != null && logoUrl.toString().trim().isNotEmpty) {
+      precacheImage(NetworkImage(logoUrl.toString()), context).catchError((_) {});
+    }
   }
 
   @override
@@ -86,12 +98,40 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
+  Future<void> _loadCachedBranding() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('cached_branding');
+      if (cached != null && cached.isNotEmpty) {
+        final data = json.decode(cached);
+        if (data is Map<String, dynamic> && mounted) {
+          setState(() => _branding = data);
+          final logoUrl = _branding['logoUrl'] ?? _branding['wallpaperUrl'];
+          if (logoUrl != null && logoUrl.toString().trim().isNotEmpty) {
+            precacheImage(NetworkImage(logoUrl.toString()), context).catchError((_) {});
+          }
+        }
+      }
+    } catch (_) {}
+    _fetchBranding();
+  }
+
   Future<void> _fetchBranding() async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/settings/branding'));
+      final res = await http.get(Uri.parse('$baseUrl/settings/branding')).timeout(const Duration(seconds: 6));
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
-        if (mounted) setState(() => _branding = data);
+        if (data is Map<String, dynamic>) {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('cached_branding', json.encode(data));
+          if (mounted) {
+            setState(() => _branding = data);
+            final logoUrl = _branding['logoUrl'] ?? _branding['wallpaperUrl'];
+            if (logoUrl != null && logoUrl.toString().trim().isNotEmpty) {
+              precacheImage(NetworkImage(logoUrl.toString()), context).catchError((_) {});
+            }
+          }
+        }
       }
     } catch (_) {}
   }
@@ -365,6 +405,26 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: Image.network(
                               logoUrl.toString(),
                               fit: BoxFit.contain,
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return SizedBox(
+                                  height: 50,
+                                  width: 50,
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        value: loadingProgress.expectedTotalBytes != null
+                                            ? loadingProgress.cumulativeBytesLoaded /
+                                                loadingProgress.expectedTotalBytes!
+                                            : null,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
                               errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                             ),
                           ),

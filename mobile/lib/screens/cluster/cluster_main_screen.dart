@@ -196,6 +196,7 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -206,99 +207,120 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
           final locCtrl = TextEditingController(text: _filterLocation);
           final nameCtrl = TextEditingController(text: _filterName);
           final lcCtrl = TextEditingController(text: _filterLc);
-          return Padding(
-            padding: EdgeInsets.only(
-              left: 20, right: 20, top: 20,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Filter & Sort',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      TextButton(
-                        onPressed: () {
-                          setSheetState(() {
-                            zone = '';
-                            division = '';
-                            sort = 'newest';
-                            locCtrl.clear();
-                            nameCtrl.clear();
-                            lcCtrl.clear();
-                          });
-                        },
-                        child: const Text('Reset'),
+          final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+          final bottomPadding = MediaQuery.of(sheetContext).padding.bottom;
+          return SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 14,
+                bottom: bottomInset > 0 ? bottomInset + 16 : (bottomPadding > 0 ? bottomPadding + 16 : 24),
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: zone.isEmpty ? null : zone,
-                    decoration: const InputDecoration(labelText: 'Zone'),
-                    items: _zones
-                        .map((z) => DropdownMenuItem(value: z, child: Text(z, overflow: TextOverflow.ellipsis)))
-                        .toList(),
-                    onChanged: (val) => setSheetState(() {
-                      zone = val ?? '';
-                      division = ''; // reset division when zone changes
-                    }),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: division.isEmpty ? null : division,
-                    decoration: const InputDecoration(labelText: 'Division'),
-                    items: divisions
-                        .map((d) => DropdownMenuItem(value: d, child: Text(d, overflow: TextOverflow.ellipsis)))
-                        .toList(),
-                    onChanged: zone.isEmpty ? null : (val) => setSheetState(() => division = val ?? ''),
-                    hint: Text(zone.isEmpty ? 'Select Zone first…' : 'Select Division…'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: locCtrl,
-                    decoration: const InputDecoration(labelText: 'Location', prefixIcon: Icon(Icons.location_city)),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(labelText: 'Gate Name', prefixIcon: Icon(Icons.label)),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: lcCtrl,
-                    decoration: const InputDecoration(labelText: 'LC Number', prefixIcon: Icon(Icons.numbers), hintText: 'e.g. LC-0001'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: sort,
-                    decoration: const InputDecoration(labelText: 'Sort By'),
-                    items: _sortOptions
-                        .map((o) => DropdownMenuItem(value: o['value'], child: Text(o['label']!)))
-                        .toList(),
-                    onChanged: (val) => setSheetState(() => sort = val ?? 'newest'),
-                  ),
-                  const SizedBox(height: 20),
-                  ElevatedButton(
-                    onPressed: () {
-                      setState(() {
-                        _filterZone = zone;
-                        _filterDivision = division;
-                        _filterLocation = locCtrl.text;
-                        _filterName = nameCtrl.text;
-                        _filterLc = lcCtrl.text;
-                        _sortBy = sort;
-                      });
-                      Navigator.pop(sheetContext);
-                    },
-                    style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                    child: const Text('Apply Filters'),
-                  ),
-                ],
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Filter & Sort',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        TextButton(
+                          onPressed: () {
+                            setSheetState(() {
+                              zone = '';
+                              division = '';
+                              sort = 'newest';
+                              locCtrl.clear();
+                              nameCtrl.clear();
+                              lcCtrl.clear();
+                            });
+                          },
+                          child: const Text('Reset'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    DropdownButtonFormField<String>(
+                      value: zone.isEmpty ? null : zone,
+                      decoration: const InputDecoration(labelText: 'Zone'),
+                      items: _zones
+                          .map((z) => DropdownMenuItem(value: z, child: Text(z, overflow: TextOverflow.ellipsis)))
+                          .toList(),
+                      onChanged: (val) => setSheetState(() {
+                        zone = val ?? '';
+                        division = ''; // reset division when zone changes
+                      }),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: division.isEmpty ? null : division,
+                      decoration: const InputDecoration(labelText: 'Division'),
+                      items: divisions
+                          .map((d) => DropdownMenuItem(value: d, child: Text(d, overflow: TextOverflow.ellipsis)))
+                          .toList(),
+                      onChanged: zone.isEmpty ? null : (val) => setSheetState(() => division = val ?? ''),
+                      hint: Text(zone.isEmpty ? 'Select Zone first…' : 'Select Division…'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: locCtrl,
+                      decoration: const InputDecoration(labelText: 'Location', prefixIcon: Icon(Icons.location_city)),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: nameCtrl,
+                      decoration: const InputDecoration(labelText: 'Gate Name', prefixIcon: Icon(Icons.label)),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: lcCtrl,
+                      decoration: const InputDecoration(labelText: 'LC Number', prefixIcon: Icon(Icons.numbers), hintText: 'e.g. LC-0001'),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: sort,
+                      decoration: const InputDecoration(labelText: 'Sort By'),
+                      items: _sortOptions
+                          .map((o) => DropdownMenuItem(value: o['value'], child: Text(o['label']!)))
+                          .toList(),
+                      onChanged: (val) => setSheetState(() => sort = val ?? 'newest'),
+                    ),
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _filterZone = zone;
+                          _filterDivision = division;
+                          _filterLocation = locCtrl.text;
+                          _filterName = nameCtrl.text;
+                          _filterLc = lcCtrl.text;
+                          _sortBy = sort;
+                        });
+                        Navigator.pop(sheetContext);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      child: const Text('Apply Filters', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
               ),
             ),
           );

@@ -277,6 +277,9 @@ export default function Branding({}: Props) {
           setLoginGradient(data.loginGradient);
           setInitialLoginGradient(data.loginGradient);
         }
+        try {
+          localStorage.setItem('cached_branding', JSON.stringify(data));
+        } catch (_) {}
         setFile(null);
         if (previewUrl) {
           URL.revokeObjectURL(previewUrl);

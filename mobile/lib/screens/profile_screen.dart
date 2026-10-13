@@ -65,17 +65,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String _humanizeKey(String key) {
-    if (key == 'fullName') return 'Full Name';
-    if (key == 'mobile') return 'Mobile Number';
-    if (key == 'email') return 'Email Address';
-    if (key == 'employeeId') return 'Employee ID';
-    if (key == 'department') return 'Department';
-    if (key == 'roleId') return 'Role ID';
-    if (key.startsWith('field_')) {
-      final sub = key.substring(6);
+    final cleanKey = key.trim();
+    final normalized = cleanKey.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (normalized == 'fullname' || normalized == 'name' || normalized == 'applicantname') return 'Full Name';
+    if (normalized == 'mobile' || normalized == 'phone' || normalized == 'mobilenumber' || normalized == 'phonenumber') return 'Mobile Number';
+    if (normalized == 'email' || normalized == 'emailaddress') return 'Email Address';
+    if (normalized == 'employeeid' || normalized == 'empid') return 'Employee ID';
+    if (normalized == 'department' || normalized == 'dept') return 'Department';
+    if (normalized == 'gender') return 'Gender';
+    if (normalized == 'roleid') return 'Role ID';
+    if (cleanKey.startsWith('field_')) {
+      final sub = cleanKey.substring(6);
       return sub.length > 6 ? 'Custom Field (${sub.substring(sub.length - 4)})' : 'Custom Field ($sub)';
     }
-    final spaced = key
+    final spaced = cleanKey
         .replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}')
         .replaceAll('_', ' ')
         .trim();
@@ -151,8 +154,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } else if (_profile['metadata'] is String) {
           metadata = json.decode(_profile['metadata']);
         }
-      }
     } catch (_) {}
+
+    final coreExclude = {
+      'fullname', 'name', 'applicantname',
+      'mobile', 'mobilenumber', 'phone', 'phonenumber',
+      'email', 'emailaddress',
+      'employeeid', 'empid',
+      'department', 'dept',
+      'role', 'roleid', 'password', 'status', 'id'
+    };
+    final customEntries = metadata.entries.where((e) {
+      final normK = e.key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      return !normK.contains('password') && !coreExclude.contains(normK);
+    }).toList();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
@@ -310,7 +325,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       ],
                     ),
                     const Divider(height: 24),
-                    if (metadata.isEmpty)
+                    if (customEntries.isEmpty)
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 8),
                         child: Text(
@@ -319,9 +334,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       )
                     else
-                      ...metadata.entries
-                          .where((e) => !e.key.toLowerCase().contains('password'))
-                          .map((entry) {
+                      ...customEntries.map((entry) {
                         final label = _humanizeKey(entry.key);
                         final isImg = _isImageUrl(entry.value);
 

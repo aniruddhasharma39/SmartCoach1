@@ -20,13 +20,34 @@ type Props = {
   onLogout: () => void;
 };
 
+const CANONICAL_MODULE_ORDER = [
+  'branding',
+  'cluster',
+  'manage-users',
+  'registration',
+  'roles',
+];
+
 const DEFAULT_SYSTEM_MODULES = [
-  { name: 'Manage Users', slug: 'manage-users' },
-  { name: 'Roles', slug: 'roles' },
-  { name: 'Registration Builder', slug: 'registration' },
   { name: 'Branding', slug: 'branding' },
   { name: 'Cluster', slug: 'cluster' },
+  { name: 'Manage Users', slug: 'manage-users' },
+  { name: 'Registration Builder', slug: 'registration' },
+  { name: 'Roles', slug: 'roles' },
 ];
+
+const sortModules = (modules: any[]) => {
+  return [...modules].sort((a, b) => {
+    const slugA = (a.slug || '').toLowerCase();
+    const slugB = (b.slug || '').toLowerCase();
+    let idxA = CANONICAL_MODULE_ORDER.indexOf(slugA);
+    let idxB = CANONICAL_MODULE_ORDER.indexOf(slugB);
+    if (idxA === -1) idxA = 999;
+    if (idxB === -1) idxB = 999;
+    if (idxA !== idxB) return idxA - idxB;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+};
 
 const getSidebarModuleIcon = (name: string, slug?: string) => {
   const key = (slug || name).toLowerCase();
@@ -69,7 +90,7 @@ export default function Dashboard({ user, onLogout }: Props) {
       });
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
-        setSystemModules(data);
+        setSystemModules(sortModules(data));
       }
     } catch (err) {
       console.error(err);
@@ -191,17 +212,24 @@ export default function Dashboard({ user, onLogout }: Props) {
   };
 
   const humanizeKey = (key: string) => {
-    if (key === 'fullName') return 'Full Name';
-    if (key === 'mobile') return 'Mobile Number';
-    if (key === 'email') return 'Email Address';
-    if (key === 'employeeId') return 'Employee ID';
-    if (key === 'department') return 'Department';
-    if (key === 'role') return 'Role';
-    if (key.startsWith('field_')) {
-      const sub = key.substring(6);
+    const cleanKey = key.trim();
+    const normalized = cleanKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (normalized === 'fullname' || normalized === 'name' || normalized === 'applicantname') return 'Full Name';
+    if (normalized === 'mobile' || normalized === 'phone' || normalized === 'mobilenumber' || normalized === 'phonenumber') return 'Mobile Number';
+    if (normalized === 'email' || normalized === 'emailaddress') return 'Email Address';
+    if (normalized === 'employeeid' || normalized === 'empid') return 'Employee ID';
+    if (normalized === 'department' || normalized === 'dept') return 'Department';
+    if (normalized === 'gender') return 'Gender';
+    if (cleanKey.startsWith('field_')) {
+      const sub = cleanKey.substring(6);
       return sub.length > 6 ? `Custom Field (${sub.substring(sub.length - 4)})` : `Custom Field (${sub})`;
     }
-    return key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').replace(/^./, str => str.toUpperCase());
+    return cleanKey
+      .replace(/_/g, ' ')
+      .replace(/([A-Z]+)/g, ' $1')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/\b[a-z]/g, str => str.toUpperCase());
   };
 
   const isImgUrl = (val: any) => {
@@ -710,17 +738,44 @@ export default function Dashboard({ user, onLogout }: Props) {
                   try {
                     const rawMeta = profileData?.metadata || user.metadata || '{}';
                     const meta = typeof rawMeta === 'string' ? JSON.parse(rawMeta) : rawMeta;
-                    const entries = Object.entries(meta).filter(([k]) => !k.toLowerCase().includes('password'));
-                    if (entries.length === 0) {
+                    const coreExclude = [
+                      'fullname', 'name', 'applicantname',
+                      'mobile', 'mobilenumber', 'phone', 'phonenumber',
+                      'email', 'emailaddress',
+                      'employeeid', 'empid',
+                      'department', 'dept',
+                      'role', 'roleid', 'password', 'status', 'id'
+                    ];
+                    const seenLabels = new Set<string>();
+                    const seenVals = new Set<string>();
+                    const validEntries: [string, any][] = [];
+
+                    for (const [k, v] of Object.entries(meta)) {
+                      if (v === null || v === undefined || v === '') continue;
+                      const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+                      if (normK.includes('password') || coreExclude.includes(normK)) continue;
+
+                      const label = humanizeKey(k);
+                      const normL = label.toLowerCase().replace(/[^a-z0-9]/g, '');
+                      if (coreExclude.includes(normL)) continue;
+
+                      const strVal = String(v).trim().toLowerCase();
+                      if (seenLabels.has(normL) || seenVals.has(strVal)) continue;
+
+                      seenLabels.add(normL);
+                      if (!isImgUrl(v)) seenVals.add(strVal);
+                      validEntries.push([label, v]);
+                    }
+
+                    if (validEntries.length === 0) {
                       return <p className="text-muted text-sm">No additional custom registration fields registered.</p>;
                     }
                     return (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-                        {entries.map(([k, v]: [string, any]) => {
-                          const label = humanizeKey(k);
+                        {validEntries.map(([label, v]: [string, any]) => {
                           const isImg = isImgUrl(v);
                           return (
-                            <div key={k} style={{ display: 'flex', flexDirection: 'column' }}>
+                            <div key={label} style={{ display: 'flex', flexDirection: 'column' }}>
                               <span className="text-muted" style={{ fontSize: '0.78rem', fontWeight: 600 }}>{label.toUpperCase()}</span>
                               {isImg ? (
                                 <div

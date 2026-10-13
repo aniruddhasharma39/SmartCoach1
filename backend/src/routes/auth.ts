@@ -25,18 +25,26 @@ const loginSchema = z.object({
 router.post('/register', upload.any(), async (req, res, next) => {
   try {
     let parsedData: any;
-    let requestedRoleId: number;
+    let requestedRoleId: number = -1;
     let formId: number;
 
     // Support both application/json and multipart/form-data
     if (req.is('multipart/form-data')) {
       parsedData = JSON.parse(req.body.data);
-      requestedRoleId = req.body.roleId ? parseInt(req.body.roleId) : -1;
+      requestedRoleId = req.body.roleId ? parseInt(req.body.roleId) : (req.body.requestedRoleId ? parseInt(req.body.requestedRoleId) : -1);
       formId = parseInt(req.body.formId);
     } else {
       parsedData = req.body.data;
-      requestedRoleId = req.body.requestedRoleId || -1;
+      requestedRoleId = req.body.requestedRoleId ? parseInt(req.body.requestedRoleId) : (req.body.roleId ? parseInt(req.body.roleId) : -1);
       formId = req.body.formId;
+    }
+
+    if (requestedRoleId === -1 && parsedData && typeof parsedData === 'object') {
+      if (parsedData.roleId !== undefined && parsedData.roleId !== null) {
+        requestedRoleId = parseInt(parsedData.roleId);
+      } else if (parsedData.requestedRoleId !== undefined && parsedData.requestedRoleId !== null) {
+        requestedRoleId = parseInt(parsedData.requestedRoleId);
+      }
     }
 
     if (!formId) return res.status(400).json({ error: 'Missing formId' });

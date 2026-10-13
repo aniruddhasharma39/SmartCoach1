@@ -61,6 +61,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   bool isLoading = true;
   bool isAuthenticated = false;
   Map<String, dynamic>? user;
+  Map<String, dynamic>? _cachedBranding;
 
   @override
   void initState() {
@@ -72,6 +73,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     final userStr = prefs.getString('user');
+    final brandingStr = prefs.getString('cached_branding');
+
+    if (brandingStr != null && brandingStr.isNotEmpty) {
+      try {
+        final decoded = json.decode(brandingStr);
+        if (decoded is Map<String, dynamic>) {
+          _cachedBranding = decoded;
+          final logoUrl = _cachedBranding!['logoUrl'] ?? _cachedBranding!['wallpaperUrl'];
+          if (logoUrl != null && logoUrl.toString().trim().isNotEmpty) {
+            precacheImage(NetworkImage(logoUrl.toString()), context).catchError((_) {});
+          }
+        }
+      } catch (_) {}
+    }
     
     if (token != null && userStr != null) {
       try {
@@ -131,7 +146,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (isAuthenticated && user != null) {
       return DashboardScreen(user: user!, onLogout: () async {
         final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
+        await prefs.remove('token');
+        await prefs.remove('user');
         setState(() {
           isAuthenticated = false;
           user = null;
@@ -139,14 +155,17 @@ class _AuthWrapperState extends State<AuthWrapper> {
       });
     }
 
-    return LoginScreen(onLogin: (u, t) async {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('token', t);
-      await prefs.setString('user', json.encode(u));
-      setState(() {
-        isAuthenticated = true;
-        user = u;
-      });
-    });
+    return LoginScreen(
+      initialBranding: _cachedBranding,
+      onLogin: (u, t) async {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('token', t);
+        await prefs.setString('user', json.encode(u));
+        setState(() {
+          isAuthenticated = true;
+          user = u;
+        });
+      },
+    );
   }
 }

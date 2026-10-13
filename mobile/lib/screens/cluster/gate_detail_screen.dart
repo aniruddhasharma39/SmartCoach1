@@ -118,37 +118,47 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
   }
 
   Future<void> _addSlaveDevice(Map master) async {
+    int calcLocalSeq(String type) {
+      final devices = (master['childDevices'] as List? ?? [])
+          .where((d) => d['type'] == type)
+          .toList();
+      final taken = devices.map((d) => d['deviceSequence'] as int? ?? 0).toSet();
+      int next = 1;
+      while (taken.contains(next)) {
+        next++;
+      }
+      return next;
+    }
+
     String selectedType = 'DEVICE_1';
-    final _seqCtrl = TextEditingController(text: '1');
+    final seqCtrl = TextEditingController(
+      text: calcLocalSeq('DEVICE_1').toString().padLeft(2, '0'),
+    );
+    bool isSyncing = false;
+
     Future<void> fetchSeq(String type, void Function(void Function()) setDialogState) async {
       try {
         final res = await http.get(
           Uri.parse('$baseUrl/lcgate/masters/${master['id']}/next-device-sequence?type=$type'),
           headers: {'Authorization': 'Bearer ${widget.token}'},
-        );
+        ).timeout(const Duration(seconds: 4));
         if (res.statusCode == 200) {
           final data = json.decode(res.body);
-          if (data['nextSequence'] != null) {
-            setDialogState(() => _seqCtrl.text = data['nextSequence'].toString().padLeft(2, '0'));
+          if (data['nextSequence'] != null && selectedType == type) {
+            setDialogState(() {
+              seqCtrl.text = data['nextSequence'].toString().padLeft(2, '0');
+              isSyncing = false;
+            });
+            return;
           }
         }
       } catch (_) {}
+      if (selectedType == type) {
+        setDialogState(() => isSyncing = false);
+      }
     }
 
-    // Fetch initial sequence
-    try {
-      final res = await http.get(
-        Uri.parse('$baseUrl/lcgate/masters/${master['id']}/next-device-sequence?type=$selectedType'),
-        headers: {'Authorization': 'Bearer ${widget.token}'},
-      );
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        if (data['nextSequence'] != null) {
-          _seqCtrl.text = data['nextSequence'].toString().padLeft(2, '0');
-        }
-      }
-    } catch (_) {}
-
+    // Immediately show dialog without waiting for blocking network request!
     bool? add = await showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -163,8 +173,14 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
                 value: 'DEVICE_1',
                 groupValue: selectedType,
                 onChanged: (val) {
-                  setDialogState(() => selectedType = val.toString());
-                  fetchSeq(val.toString(), setDialogState);
+                  final newType = val.toString();
+                  final nextLocal = calcLocalSeq(newType);
+                  setDialogState(() {
+                    selectedType = newType;
+                    seqCtrl.text = nextLocal.toString().padLeft(2, '0');
+                    isSyncing = true;
+                  });
+                  fetchSeq(newType, setDialogState);
                 },
               ),
               RadioListTile(
@@ -173,18 +189,34 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
                 value: 'DEVICE_2',
                 groupValue: selectedType,
                 onChanged: (val) {
-                  setDialogState(() => selectedType = val.toString());
-                  fetchSeq(val.toString(), setDialogState);
+                  final newType = val.toString();
+                  final nextLocal = calcLocalSeq(newType);
+                  setDialogState(() {
+                    selectedType = newType;
+                    seqCtrl.text = nextLocal.toString().padLeft(2, '0');
+                    isSyncing = true;
+                  });
+                  fetchSeq(newType, setDialogState);
                 },
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: _seqCtrl,
+                controller: seqCtrl,
                 readOnly: true,
                 decoration: InputDecoration(
                   labelText: 'Device Sequence (2 Digits) *',
                   prefixText: '${master['serialNumber']}-${selectedType == 'DEVICE_1' ? 'A' : 'B'}',
                   prefixStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo),
+                  suffixIcon: isSyncing
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : null,
                 ),
               )
             ],
@@ -192,15 +224,14 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
           actions: [
             TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
             ElevatedButton(
-              onPressed: () {
-                if (_seqCtrl.text.isEmpty) return;
-                Navigator.pop(context, true);
-              }, 
-              child: const Text('Add Device')
+              onPressed: (isSyncing || seqCtrl.text.isEmpty)
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text('Add Device'),
             ),
           ],
-        )
-      )
+        ),
+      ),
     );
 
     if (add == true) {
@@ -214,17 +245,35 @@ class _GateDetailScreenState extends State<GateDetailScreen> {
           },
           body: json.encode({
             'type': selectedType,
-            'deviceSequence': int.tryParse(_seqCtrl.text) ?? 1
-          })
+            'deviceSequence': int.tryParse(seqCtrl.text) ?? calcLocalSeq(selectedType),
+          }),
         );
         if (res.statusCode == 201) {
           await _refresh();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Slave device added successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
         } else {
-          final err = json.decode(res.body)['error'] ?? 'Failed';
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+          String err = 'Failed to add slave device';
+          try {
+            final body = json.decode(res.body);
+            if (body['error'] != null) err = body['error'];
+          } catch (_) {}
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(err), backgroundColor: Colors.red),
+            );
+          }
         }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        }
       } finally {
         if (mounted) setState(() => _isLoading = false);
       }

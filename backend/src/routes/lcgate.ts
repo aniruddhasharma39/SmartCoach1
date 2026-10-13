@@ -108,7 +108,7 @@ router.get('/:gateId/next-master-sequence', authenticate, async (req, res, next)
 });
 
 const createMasterSchema = z.object({
-  masterSequence: z.number().int().min(1).max(99),
+  masterSequence: z.number().int().min(1).max(99).optional(),
   powerSource: z.enum(['SOLAR', 'DIRECT']),
 });
 
@@ -125,17 +125,31 @@ router.post('/:gateId/masters', authenticate, async (req, res, next) => {
       return res.status(404).json({ error: 'LC Gate not found' });
     }
 
-    const serialNumber = `${gate.lcNumber}-${data.masterSequence.toString().padStart(2, '0')}`;
+    const existingMasters = await prisma.masterUnit.findMany({
+      where: { gateId },
+      select: { masterSequence: true }
+    });
+    const takenSequences = new Set(existingMasters.map(m => m.masterSequence));
 
-    const existing = await prisma.masterUnit.findUnique({ where: { serialNumber } });
-    if (existing) {
-      return res.status(400).json({ error: 'Master unit sequence already exists for this gate' });
+    let targetSequence = data.masterSequence;
+    if (!targetSequence || takenSequences.has(targetSequence)) {
+      let nextSeq = 1;
+      while (takenSequences.has(nextSeq)) {
+        nextSeq++;
+      }
+      targetSequence = nextSeq;
+    }
+
+    let serialNumber = `${gate.lcNumber}-${targetSequence.toString().padStart(2, '0')}`;
+    while (await prisma.masterUnit.findUnique({ where: { serialNumber } })) {
+      targetSequence++;
+      serialNumber = `${gate.lcNumber}-${targetSequence.toString().padStart(2, '0')}`;
     }
 
     const master = await prisma.masterUnit.create({
       data: {
         serialNumber,
-        masterSequence: data.masterSequence,
+        masterSequence: targetSequence,
         powerSource: data.powerSource,
         gateId,
       },

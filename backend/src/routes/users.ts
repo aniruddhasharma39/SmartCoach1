@@ -15,13 +15,34 @@ router.get('/', requireModule('manage-users'), async (req, res, next) => {
       orderBy: { createdAt: 'desc' }
     });
     
-    const pendingRequests = await prisma.registrationRequest.findMany({
-      where: { status: 'PENDING' },
-      include: { form: true },
-      orderBy: { createdAt: 'desc' }
+    const [pendingRequests, roles] = await Promise.all([
+      prisma.registrationRequest.findMany({
+        where: { status: 'PENDING' },
+        include: { form: true },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.role.findMany()
+    ]);
+
+    const roleMap = new Map(roles.map(r => [r.id, r.name]));
+
+    const enhancedPendingRequests = pendingRequests.map(r => {
+      let resolvedRoleId = r.requestedRoleId;
+      if (!resolvedRoleId && r.data) {
+        try {
+          const parsed = JSON.parse(r.data);
+          if (parsed.roleId) resolvedRoleId = parseInt(parsed.roleId);
+          else if (parsed.requestedRoleId) resolvedRoleId = parseInt(parsed.requestedRoleId);
+        } catch (_) {}
+      }
+      return {
+        ...r,
+        requestedRoleId: resolvedRoleId,
+        requestedRoleName: resolvedRoleId ? roleMap.get(resolvedRoleId) || null : null,
+      };
     });
     
-    res.json({ users, pendingRequests });
+    res.json({ users, pendingRequests: enhancedPendingRequests });
   } catch (error) {
     next(error);
   }

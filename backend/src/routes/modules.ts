@@ -6,10 +6,18 @@ const router = Router();
 
 router.use(authenticate);
 
+const CANONICAL_ORDER = ['branding', 'cluster', 'manage-users', 'registration', 'roles'];
+
 router.get('/', async (req, res, next) => {
   try {
-    const modules = await prisma.module.findMany({
-      orderBy: { name: 'asc' }
+    const modules = await prisma.module.findMany();
+    modules.sort((a, b) => {
+      let idxA = CANONICAL_ORDER.indexOf(a.slug);
+      let idxB = CANONICAL_ORDER.indexOf(b.slug);
+      if (idxA === -1) idxA = 999;
+      if (idxB === -1) idxB = 999;
+      if (idxA !== idxB) return idxA - idxB;
+      return a.name.localeCompare(b.name);
     });
     res.json(modules);
   } catch (error) {

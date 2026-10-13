@@ -52,12 +52,25 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
     wallpaperUrl?: string;
     logoUrl?: string;
     loginGradient?: string;
-  }>({ appName: 'LC Platform', wallpaperUrl: '', logoUrl: '', loginGradient: 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)' });
+  }>(() => {
+    try {
+      const cached = localStorage.getItem('cached_branding');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return { appName: 'LC Platform', wallpaperUrl: '', logoUrl: '', loginGradient: 'linear-gradient(135deg, #0b3c7a 0%, #0e9aa7 100%)' };
+  });
 
   useEffect(() => {
     fetch(`${API_URL}/api/v1/settings/branding`)
       .then(res => res.json())
-      .then(data => setBranding(data))
+      .then(data => {
+        if (data && typeof data === 'object') {
+          setBranding(data);
+          try {
+            localStorage.setItem('cached_branding', JSON.stringify(data));
+          } catch (_) {}
+        }
+      })
       .catch(err => console.error(err));
 
     fetch(`${API_URL}/api/v1/auth/registration-form`)

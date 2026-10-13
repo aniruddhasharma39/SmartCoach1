@@ -20,18 +20,60 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
+const List<String> _canonicalModuleOrder = [
+  'branding',
+  'cluster',
+  'manage-users',
+  'registration',
+  'roles',
+];
+
 const List<Map<String, String>> _defaultModules = [
-  {'name': 'Manage Users', 'slug': 'manage-users'},
-  {'name': 'Roles', 'slug': 'roles'},
-  {'name': 'Registration Builder', 'slug': 'registration'},
   {'name': 'Branding', 'slug': 'branding'},
   {'name': 'Cluster', 'slug': 'cluster'},
+  {'name': 'Manage Users', 'slug': 'manage-users'},
+  {'name': 'Registration Builder', 'slug': 'registration'},
+  {'name': 'Roles', 'slug': 'roles'},
 ];
+
+String _getModuleTitle(dynamic m) {
+  final slug = (m['slug'] ?? '').toString();
+  switch (slug) {
+    case 'branding':
+      return 'Branding';
+    case 'cluster':
+      return 'Cluster';
+    case 'manage-users':
+      return 'Manage Users';
+    case 'registration':
+      return 'Registration Builder';
+    case 'roles':
+      return 'Roles';
+    default:
+      final name = (m['name'] ?? '').toString();
+      return name.isNotEmpty ? name : slug;
+  }
+}
+
+List<dynamic> _sortModules(List<dynamic> rawModules) {
+  final list = List<dynamic>.from(rawModules);
+  list.sort((a, b) {
+    final slugA = (a['slug'] ?? '').toString();
+    final slugB = (b['slug'] ?? '').toString();
+    int idxA = _canonicalModuleOrder.indexOf(slugA);
+    int idxB = _canonicalModuleOrder.indexOf(slugB);
+    if (idxA == -1) idxA = 999;
+    if (idxB == -1) idxB = 999;
+    if (idxA != idxB) return idxA.compareTo(idxB);
+    return _getModuleTitle(a).compareTo(_getModuleTitle(b));
+  });
+  return list;
+}
 
 class _DashboardScreenState extends State<DashboardScreen> {
   List<dynamic> _users = [];
   List<dynamic> _roles = [];
-  List<dynamic> _systemModules = List.from(_defaultModules);
+  List<dynamic> _systemModules = _sortModules(_defaultModules);
   bool _isLoading = false;
   String _currentView = 'home';
   String _appName = 'LC Platform';
@@ -40,6 +82,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final _userSearchCtrl = TextEditingController();
   String _userSearchQuery = '';
   String _userStatusFilter = 'ALL';
+  final Map<int, int> _pendingRoleSelections = {};
 
   // Notifications State
   List<dynamic> _notifications = [];
@@ -53,9 +96,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    _loadCachedModules();
     _fetchData();
     _fetchNotifications();
     _notifsTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchNotifications());
+  }
+
+  Future<void> _loadCachedModules() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('cached_modules');
+      if (cached != null && cached.isNotEmpty) {
+        final data = json.decode(cached);
+        if (data is List && data.isNotEmpty && mounted) {
+          setState(() {
+            _systemModules = _sortModules(data);
+          });
+        }
+      }
+    } catch (_) {}
   }
 
   @override
@@ -187,6 +246,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         return StatefulBuilder(
@@ -577,11 +637,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final rolesData = json.decode(resRoles.body);
           _roles = rolesData is List ? rolesData : [];
         } catch (_) {}
+
+        // Pre-fill default role selection for pending requests based on user request
+        for (var req in _pendingRequests) {
+          final reqId = req['id'];
+          if (reqId != null && !_pendingRoleSelections.containsKey(reqId)) {
+            int? rId = req['requestedRoleId'];
+            if (rId == null && req['data'] != null) {
+              try {
+                final d = json.decode(req['data']);
+                if (d['roleId'] != null) rId = int.tryParse(d['roleId'].toString());
+                else if (d['requestedRoleId'] != null) rId = int.tryParse(d['requestedRoleId'].toString());
+              } catch (_) {}
+            }
+            if (rId != null && _roles.any((r) => r['id'] == rId)) {
+              _pendingRoleSelections[reqId] = rId;
+            } else if (_roles.isNotEmpty) {
+              _pendingRoleSelections[reqId] = _roles[0]['id'];
+            }
+          }
+        }
         
         try {
           final modsData = json.decode(resMods.body);
           if (modsData is List && modsData.isNotEmpty) {
-            _systemModules = modsData;
+            _systemModules = _sortModules(modsData);
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setString('cached_modules', json.encode(_systemModules));
+            });
           }
         } catch (_) {}
 
@@ -589,6 +672,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final brandingData = json.decode(resBranding.body);
           if (brandingData is Map && brandingData['appName'] != null) {
             _appName = brandingData['appName'];
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setString('cached_branding', json.encode(brandingData));
+            });
           }
         } catch (_) {}
       });
@@ -836,7 +922,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               return allowed is List && allowed.contains(m['slug']);
             }).map((m) {
               return ListTile(
-                title: Text(m['name']),
+                title: Text(_getModuleTitle(m)),
                 leading: Icon(getIconForModule(m['slug'])),
                 onTap: () {
                   setState(() { _currentView = m['slug']; });
@@ -917,7 +1003,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final req = pending[i];
         final reqData = json.decode(req['data'] ?? '{}');
         final form = req['form'] as Map<String, dynamic>?;
-        int selectedRole = req['requestedRoleId'] ?? (_roles.isNotEmpty ? _roles[0]['id'] : 0);
+
+        // Resolve requested role ID and role name from request or form data
+        int? reqRoleId = req['requestedRoleId'];
+        if (reqRoleId == null && reqData is Map) {
+          if (reqData['roleId'] != null) {
+            reqRoleId = int.tryParse(reqData['roleId'].toString());
+          } else if (reqData['requestedRoleId'] != null) {
+            reqRoleId = int.tryParse(reqData['requestedRoleId'].toString());
+          }
+        }
+
+        String? reqRoleName = req['requestedRoleName'];
+        if (reqRoleName == null && reqRoleId != null) {
+          final found = _roles.firstWhere(
+            (r) => r['id'] == reqRoleId,
+            orElse: () => null,
+          );
+          if (found != null) {
+            reqRoleName = found['name'];
+          }
+        }
+
+        // Determine currently selected role: use tracked selection, or default to requested role, or first role
+        int? selectedRole = _pendingRoleSelections[req['id']];
+        if (selectedRole == null || !_roles.any((r) => r['id'] == selectedRole)) {
+          if (reqRoleId != null && _roles.any((r) => r['id'] == reqRoleId)) {
+            selectedRole = reqRoleId;
+          } else if (_roles.isNotEmpty) {
+            selectedRole = _roles[0]['id'];
+          }
+          if (selectedRole != null) {
+            _pendingRoleSelections[req['id']] = selectedRole;
+          }
+        }
 
         // Find best display name for user
         String displayName = reqData['fullName'] ?? '';
@@ -959,7 +1078,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: Text('Form: ${form['name']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
                   ),
                 const Divider(height: 24),
-                ...reqData.entries.where((e) => !e.key.toLowerCase().contains('password')).map((e) {
+                ...reqData.entries.where((e) {
+                  final kLower = e.key.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+                  if (kLower.contains('password')) return false;
+                  // Skip raw role ID fields from being dumped as generic attributes
+                  if (kLower == 'roleid' || kLower == 'requestedroleid' || kLower == 'role') return false;
+                  return true;
+                }).map((e) {
                   final fieldInfo = _resolveFieldInfo(form, e.key);
                   final label = fieldInfo['label'] ?? e.key;
                   final isImg = _isImageUrl(e.value, fieldInfo['type']);
@@ -980,9 +1105,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ),
                   );
                 }),
-                const SizedBox(height: 12),
-                Text('Requested Role ID: ${req['requestedRoleId']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.secondary)),
-                const SizedBox(height: 16),
+                const SizedBox(height: 8),
+                if (reqRoleId != null || reqRoleName != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.verified_user_outlined, size: 18, color: Color(0xFF1D4ED8)),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Requested Role: ',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+                        ),
+                        Expanded(
+                          child: Text(
+                            reqRoleName ?? 'Role #$reqRoleId',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1D4ED8)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 DropdownButtonFormField<int>(
                   value: selectedRole,
                   decoration: InputDecoration(
@@ -990,8 +1141,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
                   ),
-                  items: _roles.map((e) => DropdownMenuItem<int>(value: e['id'], child: Text(e['name']))).toList(),
-                  onChanged: (v) => selectedRole = v!,
+                  items: _roles.map((e) => DropdownMenuItem<int>(
+                    value: e['id'], 
+                    child: Text('${e['name']}${e['id'] == reqRoleId ? ' (Requested)' : ''}'),
+                  )).toList(),
+                  onChanged: (v) {
+                    if (v != null) {
+                      setState(() {
+                        _pendingRoleSelections[req['id']] = v;
+                      });
+                    }
+                  },
                 ),
                 const SizedBox(height: 20),
                 Row(
@@ -1052,17 +1212,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   String _humanizeKey(String key) {
-    if (key == 'fullName') return 'Full Name';
-    if (key == 'mobile') return 'Mobile Number';
-    if (key == 'email') return 'Email Address';
-    if (key == 'employeeId') return 'Employee ID';
-    if (key == 'department') return 'Department';
-    if (key == 'roleId') return 'Requested Role ID';
-    if (key.startsWith('field_')) {
-      final sub = key.substring(6);
+    final cleanKey = key.trim();
+    final normalized = cleanKey.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    if (normalized == 'fullname' || normalized == 'name' || normalized == 'applicantname') return 'Full Name';
+    if (normalized == 'mobile' || normalized == 'phone' || normalized == 'mobilenumber' || normalized == 'phonenumber') return 'Mobile Number';
+    if (normalized == 'email' || normalized == 'emailaddress') return 'Email Address';
+    if (normalized == 'employeeid' || normalized == 'empid') return 'Employee ID';
+    if (normalized == 'department' || normalized == 'dept') return 'Department';
+    if (normalized == 'gender') return 'Gender';
+    if (normalized == 'roleid') return 'Requested Role ID';
+    if (cleanKey.startsWith('field_')) {
+      final sub = cleanKey.substring(6);
       return sub.length > 6 ? 'Custom Field (${sub.substring(sub.length - 4)})' : 'Custom Field ($sub)';
     }
-    final spaced = key.replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}').replaceAll('_', ' ').trim();
+    final spaced = cleanKey.replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}').replaceAll('_', ' ').trim();
     if (spaced.isEmpty) return key;
     return spaced[0].toUpperCase() + spaced.substring(1);
   }
@@ -1368,28 +1531,60 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       } catch (_) {}
                       
                       List<Widget> metaWidgets = [];
-                      metadata.forEach((k, v) {
-                        if (k.toLowerCase().contains('password')) return;
-                        final displayKey = _humanizeKey(k);
-                        final isImg = _isImageUrl(v, null);
-                        
+                      final seenKeys = <String>{
+                        'fullname', 'name', 'applicantname',
+                        'employeeid', 'empid',
+                        'department', 'dept',
+                        'role', 'roleid', 'status', 'password', 'id'
+                      };
+                      final seenVals = <String>{};
+
+                      void addMetaRow(String label, dynamic val) {
+                        if (val == null) return;
+                        final sVal = val.toString().trim();
+                        if (sVal.isEmpty) return;
+                        final normKey = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+                        if (seenKeys.contains(normKey)) return;
+                        if (seenVals.contains(sVal.toLowerCase())) return;
+
+                        seenKeys.add(normKey);
+                        final isImg = _isImageUrl(val, null);
+                        if (!isImg) seenVals.add(sVal.toLowerCase());
+
                         metaWidgets.add(
                           Padding(
                             padding: const EdgeInsets.only(bottom: 6),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(flex: 2, child: Text(displayKey, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500))),
+                                Expanded(flex: 2, child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500))),
                                 Expanded(
                                   flex: 3, 
                                   child: isImg
-                                      ? Align(alignment: Alignment.centerLeft, child: _buildImageThumbnail(v.toString(), displayKey))
-                                      : Text(v.toString(), style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
+                                      ? Align(alignment: Alignment.centerLeft, child: _buildImageThumbnail(sVal, label))
+                                      : Text(sVal, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12)),
                                 ),
                               ],
                             ),
-                          )
+                          ),
                         );
+                      }
+
+                      if (u['mobile'] != null && u['mobile'].toString().trim().isNotEmpty) {
+                        addMetaRow('Mobile Number', u['mobile']);
+                      }
+                      if (u['email'] != null && u['email'].toString().trim().isNotEmpty) {
+                        addMetaRow('Email Address', u['email']);
+                      }
+
+                      metadata.forEach((k, v) {
+                        if (k.toLowerCase().contains('password')) return;
+                        final normK = k.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+                        if (seenKeys.contains(normK)) return;
+                        final displayKey = _humanizeKey(k);
+                        final normDisplay = displayKey.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+                        if (seenKeys.contains(normDisplay)) return;
+                        addMetaRow(displayKey, v);
                       });
 
                       return Card(
