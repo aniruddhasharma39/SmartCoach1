@@ -25,7 +25,8 @@ import {
   FaCog,
   FaMapMarkerAlt,
   FaDatabase,
-  FaSpinner
+  FaSpinner,
+  FaSyncAlt,
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
@@ -160,6 +161,7 @@ export default function Roles({}: Props) {
   // Delete confirm modal state
   const [deletingRole, setDeletingRole] = useState<RoleItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -175,6 +177,16 @@ export default function Roles({}: Props) {
       console.error('Failed to load roles data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    const minDelay = new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      await Promise.all([fetchData(), minDelay]);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -329,6 +341,17 @@ export default function Roles({}: Props) {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+
+          <button
+            type="button"
+            className="btn-refresh-roles"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            title="Refresh roles from server"
+          >
+            <FaSyncAlt className={isRefreshing ? 'spin' : ''} />
+            <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
 
           <button 
             className="btn-create-role" 

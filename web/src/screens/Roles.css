@@ -74,6 +74,35 @@
   box-shadow: 0 0 0 3px rgba(11, 60, 122, 0.15) !important;
 }
 
+.btn-refresh-roles {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.1rem !important;
+  background-color: #ffffff !important;
+  color: var(--text-main) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 10px !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  margin-bottom: 0 !important;
+}
+
+.btn-refresh-roles:hover:not(:disabled) {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.06);
+}
+
+.btn-refresh-roles:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .btn-create-role {
   display: inline-flex;
   align-items: center;

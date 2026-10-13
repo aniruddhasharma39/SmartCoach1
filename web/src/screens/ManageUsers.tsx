@@ -26,6 +26,7 @@ import {
   FaCopy,
   FaExclamationTriangle,
   FaSpinner,
+  FaFilter,
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
@@ -124,7 +125,6 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
       showToast('Failed to load user directory', 'danger');
     } finally {
       setLoading(false);
-      setIsRefreshing(false);
     }
   };
 
@@ -132,9 +132,18 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
     fetchAllData();
   }, []);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    fetchAllData();
+    const minDelay = new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      await Promise.all([fetchAllData(), minDelay]);
+      if (onUserUpdate) onUserUpdate();
+      showToast('User directory refreshed successfully!', 'info');
+    } catch {
+      showToast('Failed to refresh user directory', 'danger');
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   // Humanize dictionary keys for display
@@ -384,14 +393,12 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
     return map;
   }, [filteredUsers]);
 
-  // Initialize all role groups as expanded by default once loaded
-  useEffect(() => {
-    const initialExpanded: Record<string, boolean> = {};
-    Object.keys(usersByRole).forEach(roleName => {
-      initialExpanded[roleName] = true;
-    });
-    setExpandedRoles(prev => ({ ...initialExpanded, ...prev }));
-  }, [users]);
+  // Role group accordion logic: All role groups are COLLAPSED by default
+  // Only expand when user explicitly clicks on a role header or clicks "Expand All"
+  const roleNames = useMemo(() => Object.keys(usersByRole), [usersByRole]);
+  const allRolesExpanded = useMemo(() => {
+    return roleNames.length > 0 && roleNames.every(rn => Boolean(expandedRoles[rn]));
+  }, [roleNames, expandedRoles]);
 
   const toggleRoleExpanded = (roleName: string) => {
     setExpandedRoles(prev => ({
@@ -401,11 +408,10 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
   };
 
   const handleToggleAllAccordions = () => {
-    const allRoleNames = Object.keys(usersByRole);
-    const anyCollapsed = allRoleNames.some(rn => !expandedRoles[rn]);
+    const shouldExpandAll = !allRolesExpanded;
     const newState: Record<string, boolean> = {};
-    allRoleNames.forEach(rn => {
-      newState[rn] = anyCollapsed;
+    roleNames.forEach(rn => {
+      newState[rn] = shouldExpandAll;
     });
     setExpandedRoles(newState);
   };
@@ -515,7 +521,8 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
 
       {/* Navigation Toolbar & Filters */}
       <div className="users-toolbar">
-        <div className="toolbar-primary-row">
+        {/* Row 1: Primary Navigation Tabs & Search */}
+        <div className="toolbar-top-row">
           {/* Segmented Tab Switcher */}
           <div className="users-tab-group">
             <button
@@ -540,60 +547,104 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
             </button>
           </div>
 
-          {/* Filter Controls for Existing Users */}
+          {/* Search Bar for Existing Users */}
           {activeTab === 'existing' && (
-            <div className="toolbar-filters-group">
-              {/* Search Bar */}
-              <div className="search-box-wrapper">
-                <FaSearch className="search-box-icon" />
-                <input
-                  type="text"
-                  className="search-box-input"
-                  placeholder="Search by name, ID, mobile, dept..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-
-              {/* Role Filter */}
-              <select
-                className="filter-select"
-                value={selectedRoleFilter}
-                onChange={(e) => setSelectedRoleFilter(e.target.value)}
-                title="Filter by role"
-              >
-                <option value="ALL">All Roles ({roles.length})</option>
-                {roles.map(r => (
-                  <option key={r.id} value={r.name}>{r.name}</option>
-                ))}
-              </select>
-
-              {/* Status Filter */}
-              <select
-                className="filter-select"
-                value={selectedStatusFilter}
-                onChange={(e) => setSelectedStatusFilter(e.target.value)}
-                title="Filter by account status"
-              >
-                <option value="ALL">All Statuses</option>
-                <option value="APPROVED">Approved Only</option>
-                <option value="DEACTIVATED">Deactivated Only</option>
-              </select>
-
-              {/* Toggle Accordions */}
-              {Object.keys(usersByRole).length > 0 && (
+            <div className="search-box-wrapper">
+              <FaSearch className="search-box-icon" />
+              <input
+                type="text"
+                className="search-box-input"
+                placeholder="Search by name, ID, mobile, dept..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
                 <button
                   type="button"
-                  className="btn-toggle-all-accordions"
-                  onClick={handleToggleAllAccordions}
-                  title="Expand or collapse all role sections"
+                  className="search-box-clear"
+                  onClick={() => setSearchQuery('')}
+                  title="Clear search query"
+                  aria-label="Clear search"
                 >
-                  Toggle All
+                  <FaTimes />
                 </button>
               )}
             </div>
           )}
         </div>
+
+        {/* Row 2: Secondary Filter Strip & Accordion Toggle (Only on Existing Users) */}
+        {activeTab === 'existing' && (
+          <div className="toolbar-filter-strip">
+            <div className="filter-controls-left">
+              <div className="filter-label-group">
+                <FaFilter className="filter-icon" />
+                <span className="filter-label-text">Filter:</span>
+              </div>
+
+              {/* Role Dropdown */}
+              <div className="filter-select-wrapper">
+                <select
+                  className="filter-select"
+                  value={selectedRoleFilter}
+                  onChange={(e) => setSelectedRoleFilter(e.target.value)}
+                  title="Filter users by role"
+                >
+                  <option value="ALL">All Roles ({roles.length})</option>
+                  {roles.map(r => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Dropdown */}
+              <div className="filter-select-wrapper">
+                <select
+                  className="filter-select"
+                  value={selectedStatusFilter}
+                  onChange={(e) => setSelectedStatusFilter(e.target.value)}
+                  title="Filter users by account status"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="APPROVED">Approved Only</option>
+                  <option value="DEACTIVATED">Deactivated Only</option>
+                </select>
+              </div>
+
+              {/* Reset Filters Button */}
+              {(selectedRoleFilter !== 'ALL' || selectedStatusFilter !== 'ALL' || searchQuery.trim() !== '') && (
+                <button
+                  type="button"
+                  className="btn-clear-inline-filters"
+                  onClick={() => {
+                    setSelectedRoleFilter('ALL');
+                    setSelectedStatusFilter('ALL');
+                    setSearchQuery('');
+                  }}
+                  title="Reset all active filters"
+                >
+                  <FaTimes size={11} />
+                  <span>Reset Filters</span>
+                </button>
+              )}
+            </div>
+
+            {/* Right side: Accordion Collapse/Expand Controls */}
+            {roleNames.length > 0 && (
+              <div className="filter-controls-right">
+                <button
+                  type="button"
+                  className="btn-toggle-all-accordions"
+                  onClick={handleToggleAllAccordions}
+                  title={allRolesExpanded ? 'Collapse all role groups' : 'Expand all role groups'}
+                >
+                  {allRolesExpanded ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+                  <span>{allRolesExpanded ? 'Collapse All' : 'Expand All'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ====================================================================
@@ -633,7 +684,8 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
           ) : (
             Object.entries(usersByRole).map(([roleName, roleUsers]) => {
               const RoleIcon = getRoleIcon(roleName);
-              const isExpanded = expandedRoles[roleName] !== false; // default true
+              // Collapsed by default; only expanded when explicitly toggled to true
+              const isExpanded = Boolean(expandedRoles[roleName]);
 
               return (
                 <div key={roleName} className="role-group-section">
@@ -641,19 +693,35 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
                   <div
                     className="role-group-header"
                     onClick={() => toggleRoleExpanded(roleName)}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isExpanded}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleRoleExpanded(roleName);
+                      }
+                    }}
                   >
                     <div className="role-group-title-left">
                       <div className="role-group-icon">
                         <RoleIcon />
                       </div>
-                      <span className="role-group-name">{roleName}</span>
-                      <span className="role-user-count-chip">
-                        {roleUsers.length} {roleUsers.length === 1 ? 'Member' : 'Members'}
-                      </span>
+                      <div className="role-group-title-info">
+                        <span className="role-group-name">{roleName}</span>
+                        <span className="role-user-count-chip">
+                          {roleUsers.length} {roleUsers.length === 1 ? 'Member' : 'Members'}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="role-accordion-arrow">
-                      {isExpanded ? <FaChevronUp /> : <FaChevronDown />}
+                    <div className="role-accordion-right">
+                      <span className="role-accordion-hint">
+                        {isExpanded ? 'Click to collapse' : 'Click to expand'}
+                      </span>
+                      <div className={`role-accordion-arrow-btn ${isExpanded ? 'expanded' : ''}`}>
+                        {isExpanded ? <FaChevronUp /> : <FaChevronDown />}
+                      </div>
                     </div>
                   </div>
 
