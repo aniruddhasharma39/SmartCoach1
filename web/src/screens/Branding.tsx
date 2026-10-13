@@ -164,7 +164,6 @@ export default function Branding({}: Props) {
             </div>
           )}
 
-<<<<<<< HEAD
           {errorMessage && (
             <div
               style={{
@@ -340,6 +339,7 @@ export default function Branding({}: Props) {
               </div>
             </div>
           </form>
+        </div>
       </div>
     </div>
   );
