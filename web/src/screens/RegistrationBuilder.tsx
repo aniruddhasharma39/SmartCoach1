@@ -3,7 +3,7 @@ import type { FormField, FormSchema, FieldType } from '../types/form';
 import FieldSettingsSidebar from '../components/FormBuilder/FieldSettingsSidebar';
 import FormRenderer from '../components/FormBuilder/FormRenderer';
 import { 
-  removeNode, insertBefore, appendToSection, 
+  removeNode, insertBefore, insertAfter, appendToSection, 
   moveNodeUp, moveNodeDown, duplicateNode, findNode, countAllFields 
 } from '../utils/tree';
 import { 
@@ -62,8 +62,9 @@ export default function RegistrationBuilder() {
   
   // Drag and Drop Visual States
   const [draggingFieldId, setDraggingFieldId] = useState<string | null>(null);
-  const [dragOverTargetId, setDragOverTargetId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; position: 'above' | 'below' | 'inside' } | null>(null);
   const touchSourceIdRef = useRef<string | null>(null);
+  const touchDropRef = useRef<{ id: string; position: 'above' | 'below' | 'inside' } | null>(null);
   
   // App state
   const [showPreview, setShowPreview] = useState(false);
@@ -371,7 +372,9 @@ export default function RegistrationBuilder() {
   const handleDropOnField = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragOverTargetId(null);
+    
+    const currentPosition = dropTarget?.id === targetId ? dropTarget.position : 'below';
+    setDropTarget(null);
     setDraggingFieldId(null);
 
     const sourceData = e.dataTransfer.getData('text/plain');
@@ -380,7 +383,13 @@ export default function RegistrationBuilder() {
     if (sourceData.startsWith('palette:')) {
       const type = sourceData.replace('palette:', '') as FieldType;
       const created = createNewFieldObject(type);
-      setFields(prev => insertBefore(prev, targetId, created));
+      setFields(prev => {
+        if (currentPosition === 'above') {
+          return insertBefore(prev, targetId, created);
+        } else {
+          return insertAfter(prev, targetId, created);
+        }
+      });
       setActiveFieldId(created.id);
       showToast(`Added ${created.label}`);
       return;
@@ -391,7 +400,11 @@ export default function RegistrationBuilder() {
     setFields(prev => {
       let { newList, removed } = removeNode(prev, sourceData);
       if (removed) {
-        return insertBefore(newList, targetId, removed);
+        if (currentPosition === 'above') {
+          return insertBefore(newList, targetId, removed);
+        } else {
+          return insertAfter(newList, targetId, removed);
+        }
       }
       return prev;
     });
@@ -400,7 +413,7 @@ export default function RegistrationBuilder() {
   const handleDropOnSection = (e: React.DragEvent, sectionId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragOverTargetId(null);
+    setDropTarget(null);
     setDraggingFieldId(null);
 
     const sourceData = e.dataTransfer.getData('text/plain');
@@ -426,16 +439,38 @@ export default function RegistrationBuilder() {
     });
   };
 
-  const handleDragOver = (e: React.DragEvent, targetId?: string) => {
+  const handleDragOver = (e: React.DragEvent, targetId?: string, isSectionZone = false) => {
     e.preventDefault();
-    if (targetId && targetId !== dragOverTargetId) {
-      setDragOverTargetId(targetId);
+    e.stopPropagation();
+    if (!targetId) return;
+
+    if (isSectionZone) {
+      if (dropTarget?.id !== targetId || dropTarget?.position !== 'inside') {
+        setDropTarget({ id: targetId, position: 'inside' });
+      }
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midpoint = rect.top + rect.height / 2;
+    const position = e.clientY < midpoint ? 'above' : 'below';
+
+    if (!dropTarget || dropTarget.id !== targetId || dropTarget.position !== position) {
+      setDropTarget({ id: targetId, position });
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    if (dropTarget?.id === targetId) {
+      setDropTarget(null);
     }
   };
 
   const handleDragEnd = () => {
     setDraggingFieldId(null);
-    setDragOverTargetId(null);
+    setDropTarget(null);
   };
 
   // --- Mobile Touch Drag Reordering ---
@@ -451,28 +486,37 @@ export default function RegistrationBuilder() {
     const cardElem = elem?.closest('[data-field-id]') as HTMLElement;
     if (cardElem) {
       const targetId = cardElem.getAttribute('data-field-id');
-      if (targetId && targetId !== dragOverTargetId) {
-        setDragOverTargetId(targetId);
+      if (targetId) {
+        const rect = cardElem.getBoundingClientRect();
+        const midpoint = rect.top + rect.height / 2;
+        const position = touch.clientY < midpoint ? 'above' : 'below';
+        touchDropRef.current = { id: targetId, position };
+        setDropTarget({ id: targetId, position });
       }
     }
   };
 
   const handleTouchEnd = () => {
     const sourceId = touchSourceIdRef.current;
-    const targetId = dragOverTargetId;
-    if (sourceId && targetId && sourceId !== targetId) {
+    const targetInfo = touchDropRef.current;
+    if (sourceId && targetInfo && sourceId !== targetInfo.id) {
       setFields(prev => {
         let { newList, removed } = removeNode(prev, sourceId);
         if (removed) {
-          return insertBefore(newList, targetId, removed);
+          if (targetInfo.position === 'above') {
+            return insertBefore(newList, targetInfo.id, removed);
+          } else {
+            return insertAfter(newList, targetInfo.id, removed);
+          }
         }
         return prev;
       });
       showToast('Field reordered successfully');
     }
     touchSourceIdRef.current = null;
+    touchDropRef.current = null;
     setDraggingFieldId(null);
-    setDragOverTargetId(null);
+    setDropTarget(null);
   };
 
   // --- Tree Manipulations ---
@@ -571,7 +615,9 @@ export default function RegistrationBuilder() {
   const renderField = (field: FormField, _parentIsSection = false) => {
     const isActive = activeFieldId === field.id;
     const isDragging = draggingFieldId === field.id;
-    const isDropTarget = dragOverTargetId === field.id;
+    const isTargetAbove = dropTarget?.id === field.id && dropTarget.position === 'above';
+    const isTargetBelow = dropTarget?.id === field.id && dropTarget.position === 'below';
+    const isTargetInside = dropTarget?.id === field.id && dropTarget.position === 'inside';
     const isSection = field.type === 'section';
     const isCollapsed = collapsedSections[field.id] || false;
 
@@ -582,15 +628,18 @@ export default function RegistrationBuilder() {
         draggable
         onDragStart={(e) => handleDragStart(e, field.id)}
         onDragOver={(e) => handleDragOver(e, field.id)}
+        onDragLeave={(e) => handleDragLeave(e, field.id)}
         onDrop={(e) => handleDropOnField(e, field.id)}
         onDragEnd={handleDragEnd}
-        className={`field-card ${isSection ? 'is-section' : ''} ${isActive ? 'is-active' : ''} ${isDragging ? 'is-dragging' : ''} ${isDropTarget ? 'drop-target-active' : ''}`}
+        className={`field-card ${isSection ? 'is-section' : ''} ${isActive ? 'is-active' : ''} ${isDragging ? 'is-dragging' : ''} ${isTargetAbove ? 'drop-target-above' : ''} ${isTargetBelow ? 'drop-target-below' : ''}`}
         onClick={(e) => { 
           e.stopPropagation(); 
           setActiveFieldId(field.id);
-          // If on mobile screen, provide quick feedback
         }}
       >
+        {/* Sharp Reflective Blue Insertion Guideline Above */}
+        {isTargetAbove && <div className="drop-indicator-line above" />}
+
         <div className="field-card-header">
           <div className="field-card-left">
             {/* Drag Handle with Touch and Mouse support */}
@@ -691,13 +740,17 @@ export default function RegistrationBuilder() {
             )}
           </div>
         </div>
+
+        {/* Sharp Reflective Blue Insertion Guideline Below */}
+        {isTargetBelow && <div className="drop-indicator-line below" />}
         
         {/* Section Child Zone */}
         {isSection && !isCollapsed && (
           <div 
-            className="section-children-zone"
+            className={`section-children-zone ${isTargetInside ? 'drop-target-inside' : ''}`}
             onDrop={(e) => handleDropOnSection(e, field.id)}
-            onDragOver={(e) => handleDragOver(e, field.id)}
+            onDragOver={(e) => handleDragOver(e, field.id, true)}
+            onDragLeave={(e) => handleDragLeave(e, field.id)}
           >
             {field.children && field.children.length > 0 ? (
               field.children.map(child => renderField(child, true))

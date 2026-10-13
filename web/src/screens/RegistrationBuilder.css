@@ -690,9 +690,83 @@
   border-style: dashed;
 }
 
-.field-card.drop-target-active {
-  border-color: var(--primary, #0b3c7a);
-  background: #f0f7ff;
+/* Drop target scaling and vibrant color highlight above */
+.field-card.drop-target-above {
+  border-top-color: #0284c7 !important;
+  border-top-width: 2px !important;
+  background: linear-gradient(180deg, rgba(14, 165, 233, 0.08) 0%, #ffffff 45%) !important;
+  box-shadow: 0 -6px 18px rgba(14, 165, 233, 0.28), 0 4px 10px rgba(0, 0, 0, 0.05) !important;
+  transform: scale(1.02) translateY(5px) !important;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  z-index: 10;
+}
+
+/* Drop target scaling and vibrant color highlight below */
+.field-card.drop-target-below {
+  border-bottom-color: #0284c7 !important;
+  border-bottom-width: 2px !important;
+  background: linear-gradient(0deg, rgba(14, 165, 233, 0.08) 0%, #ffffff 45%) !important;
+  box-shadow: 0 6px 18px rgba(14, 165, 233, 0.28), 0 2px 6px rgba(0, 0, 0, 0.05) !important;
+  transform: scale(1.02) translateY(-5px) !important;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  z-index: 10;
+}
+
+/* Sharp Reflective Blue Insertion Guideline */
+.drop-indicator-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #0284c7 100%);
+  border-radius: 4px;
+  box-shadow: 0 0 14px rgba(14, 165, 233, 1), 0 0 5px #0284c7;
+  z-index: 35;
+  pointer-events: none;
+  animation: dropGlowPulse 0.8s infinite alternate;
+}
+
+.drop-indicator-line::before,
+.drop-indicator-line::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #38bdf8;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 8px rgba(14, 165, 233, 1);
+}
+
+.drop-indicator-line::before {
+  left: -5px;
+}
+
+.drop-indicator-line::after {
+  right: -5px;
+}
+
+.drop-indicator-line.above {
+  top: -5px;
+}
+
+.drop-indicator-line.below {
+  bottom: -5px;
+}
+
+@keyframes dropGlowPulse {
+  0% { opacity: 0.85; filter: drop-shadow(0 0 3px #38bdf8); }
+  100% { opacity: 1; filter: drop-shadow(0 0 10px #0284c7); }
+}
+
+/* Section Drop Zone Highlighting when target is inside */
+.section-children-zone.drop-target-inside {
+  background: rgba(14, 165, 233, 0.08) !important;
+  border-color: #0284c7 !important;
+  border-style: solid !important;
+  box-shadow: inset 0 0 12px rgba(14, 165, 233, 0.18) !important;
 }
 
 /* Top bar inside field card */
