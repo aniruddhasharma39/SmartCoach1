@@ -473,6 +473,49 @@
   border-radius: 10px;
 }
 
+/* Screen-Level Floating Tooltip (renders over the screen without scroll clipping) */
+.screen-floating-tooltip {
+  position: fixed;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  box-shadow: 0 10px 25px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -4px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: tooltipFloatIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  z-index: 9999999 !important;
+}
+
+.screen-floating-tooltip .tooltip-arrow-top {
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #0f172a;
+}
+
+@keyframes tooltipFloatIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
 /* --------------------------------------------------------------------------
    3-Column Builder Workspace Layout
    -------------------------------------------------------------------------- */

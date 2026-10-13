@@ -55,6 +55,7 @@ export default function RegistrationBuilder() {
   
   // Mobile & Responsive UI State
   const [activeMobileTab, setActiveMobileTab] = useState<'canvas' | 'palette' | 'properties' | 'settings'>('canvas');
+  const [propertiesTooltip, setPropertiesTooltip] = useState<{ show: boolean; x: number; y: number } | null>(null);
   const [paletteSearch, setPaletteSearch] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -887,15 +888,22 @@ export default function RegistrationBuilder() {
           </button>
           <div 
             className="reg-mobile-tab-wrapper"
-            title={!activeField ? "Please select a field" : `Properties: ${activeField.label}`}
-            data-tooltip={!activeField ? "Please select a field" : undefined}
-            data-tooltip-pos="bottom"
+            onMouseEnter={(e) => {
+              if (!activeField) {
+                const rect = e.currentTarget.getBoundingClientRect();
+                setPropertiesTooltip({
+                  show: true,
+                  x: rect.left + rect.width / 2,
+                  y: rect.bottom + 8
+                });
+              }
+            }}
+            onMouseLeave={() => setPropertiesTooltip(null)}
           >
             <button 
               type="button"
               className={`reg-mobile-tab-btn ${activeMobileTab === 'properties' ? 'active' : ''} ${!activeField ? 'disabled' : ''}`}
               disabled={!activeField}
-              title={!activeField ? "Please select a field" : `Properties: ${activeField.label}`}
               onClick={() => {
                 if (!activeField) {
                   showToast('Please select a field first', 'info');
@@ -1266,6 +1274,23 @@ export default function RegistrationBuilder() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Floating Screen-Level Tooltip (Completely outside scroll containers) */}
+        {propertiesTooltip?.show && (
+          <div 
+            className="screen-floating-tooltip"
+            style={{
+              position: 'fixed',
+              top: propertiesTooltip.y,
+              left: propertiesTooltip.x,
+              transform: 'translateX(-50%)',
+              zIndex: 999999
+            }}
+          >
+            <div className="tooltip-arrow-top" />
+            <span>Please select a field</span>
           </div>
         )}
       </div>
