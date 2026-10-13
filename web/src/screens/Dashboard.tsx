@@ -2,16 +2,17 @@ import { useEffect, useState } from 'react';
 import { 
   FaBell, FaBars, FaTimes, FaUser, FaUserCircle, 
   FaUserPlus, FaNetworkWired, FaMicrochip, FaCheckCircle, 
-  FaLock, FaSearchPlus, FaChevronDown, FaChevronUp, FaSyncAlt,
+  FaLock, FaSearchPlus,
   FaHome, FaLayerGroup, FaUsers, FaShieldAlt, FaPaintBrush, 
   FaFileAlt, FaChartBar, FaHistory, FaVideo, FaTrain, FaCog, 
-  FaMapMarkerAlt, FaDatabase, FaSpinner, FaCheck, FaTimesCircle, FaInfoCircle 
+  FaMapMarkerAlt, FaDatabase
 } from 'react-icons/fa';
 import type { User, NotificationItem } from '../types';
 import Roles from './Roles';
 import RegistrationBuilder from './RegistrationBuilder';
 import Branding from './Branding';
 import ClusterDashboard from './Cluster/ClusterDashboard';
+import ManageUsers from './ManageUsers';
 import { API_URL } from '../config';
 
 type Props = {
@@ -45,9 +46,6 @@ const getSidebarModuleIcon = (name: string, slug?: string) => {
 };
 
 export default function Dashboard({ user, onLogout }: Props) {
-  const [users, setUsers] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
-  const [openSection, setOpenSection] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<string>('home');
   const [systemModules, setSystemModules] = useState<any[]>(DEFAULT_SYSTEM_MODULES);
   const [branding, setBranding] = useState({ appName: 'LC Platform' });
@@ -63,48 +61,6 @@ export default function Dashboard({ user, onLogout }: Props) {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [profileData, setProfileData] = useState<User | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-
-  const canManageUsers = user.role === 'Developer' || user.allowedModules?.includes('manage-users');
-
-  const fetchUsers = async () => {
-    if (!canManageUsers) return;
-    try {
-      const res = await fetch(`${API_URL}/api/v1/users`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await res.json();
-      setUsers(data.users || []);
-      setPendingRequests(data.pendingRequests || []);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
-  const [confirmModal, setConfirmModal] = useState<{ id: number, action: string, name: string } | null>(null);
-  const [actionLoading, setActionLoading] = useState<{ id: number; action: string } | null>(null);
-  const [actionCompleted, setActionCompleted] = useState<{ id: number; action: string } | null>(null);
-  const [isRefreshingUsers, setIsRefreshingUsers] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'danger' | 'info' } | null>(null);
-
-  const showToast = (message: string, type: 'success' | 'danger' | 'info' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(prev => prev?.message === message ? null : prev);
-    }, 3200);
-  };
-
-  const fetchRoles = async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/v1/roles`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-      });
-      const data = await res.json();
-      if (Array.isArray(data)) setRoles(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const fetchSystemModules = async () => {
     try {
@@ -269,8 +225,6 @@ export default function Dashboard({ user, onLogout }: Props) {
 
   useEffect(() => {
     // Fetch in parallel in background without blocking immediate UI rendering
-    fetchRoles();
-    fetchUsers();
     fetchSystemModules();
     fetchBranding();
     fetchNotifications();
@@ -281,124 +235,8 @@ export default function Dashboard({ user, onLogout }: Props) {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    if (currentView === 'manage-users' && canManageUsers) {
-      fetchUsers();
-      fetchNotifications();
-    }
-  }, [currentView]);
-
-  const getDisplayData = (req: any, reqData: any) => {
-    let schema: any = null;
-    try {
-      if (req.form?.schema) schema = JSON.parse(req.form.schema);
-    } catch {}
-
-    const allFields: any[] = [];
-    const walk = (fields: any[]) => {
-      if(!fields) return;
-      for (const f of fields) {
-        if (f.type === 'section' && f.children) walk(f.children);
-        else allFields.push(f);
-      }
-    };
-    if (schema?.fields) walk(schema.fields);
-
-    let fullName = reqData.fullName;
-    const formattedData: Record<string, any> = {};
-
-    for (const [k, v] of Object.entries(reqData)) {
-      if (k === 'password') continue;
-      const field = allFields.find(f => f.name === k);
-      const label = field ? field.label : k;
-      formattedData[label] = v;
-
-      if (!fullName && field && (field.label.toLowerCase().includes('name'))) {
-        fullName = v;
-      }
-    }
-
-    return { fullName: fullName || 'Unknown User', formattedData };
-  };
-
-  const handleAction = async (id: number, action: string, body = {}, isRequest = false, userName?: string) => {
-    setActionLoading({ id, action });
-    try {
-      const endpoint = isRequest 
-        ? `${API_URL}/api/v1/users/request/${id}/${action}`
-        : `${API_URL}/api/v1/users/${id}/${action}`;
-      
-      const res = await fetch(endpoint, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(body)
-      });
-      
-      if (res.ok) {
-        setActionLoading(null);
-        setActionCompleted({ id, action });
-        
-        const actionLabel = action === 'approve' 
-          ? 'approved' 
-          : action === 'reject' 
-          ? 'rejected' 
-          : action === 'deactivate' 
-          ? 'deactivated' 
-          : 'reactivated';
-        
-        const targetName = userName ? `"${userName}"` : 'User';
-        showToast(`${targetName} has been ${actionLabel} successfully!`, action === 'reject' ? 'info' : 'success');
-        
-        setTimeout(() => {
-          fetchUsers();
-          fetchNotifications();
-          setActionCompleted(null);
-        }, 1200);
-      } else {
-        const err = await res.json().catch(() => ({}));
-        setActionLoading(null);
-        showToast(err.error || `Failed to ${action} user`, 'danger');
-      }
-    } catch (err) {
-      console.error(err);
-      setActionLoading(null);
-      showToast(`Network error while trying to ${action} user`, 'danger');
-    }
-  };
-
-  const handleRefreshUsers = async () => {
-    setIsRefreshingUsers(true);
-    try {
-      await Promise.all([fetchUsers(), fetchNotifications()]);
-      showToast('User list and pending requests refreshed', 'info');
-    } finally {
-      setIsRefreshingUsers(false);
-    }
-  };
-
-  const usersByRole = users.reduce((acc, curr) => {
-    if (curr.status === 'PENDING') return acc; // Just in case, shouldn't happen now
-    const roleName = curr.role?.name || 'Unknown';
-    if (!acc[roleName]) acc[roleName] = [];
-    acc[roleName].push(curr);
-    return acc;
-  }, {} as Record<string, any[]>);
-
-  const [activeTab, setActiveTab] = useState<'existing' | 'pending'>('existing');
-
   return (
     <div className="app-container">
-      {toast && (
-        <div className={`toast-banner ${toast.type}`}>
-          {toast.type === 'success' && <FaCheckCircle size={16} />}
-          {toast.type === 'danger' && <FaTimesCircle size={16} />}
-          {toast.type === 'info' && <FaInfoCircle size={16} />}
-          <span>{toast.message}</span>
-        </div>
-      )}
       <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', borderBottom: '1px solid var(--border)', padding: '0.75rem 1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button 
@@ -737,296 +575,7 @@ export default function Dashboard({ user, onLogout }: Props) {
           {currentView === 'branding' && <Branding user={user} />}
           {currentView === 'cluster' && <ClusterDashboard user={user} />}
           
-          {currentView === 'manage-users' && (
-            <>
-              <div className="flex justify-between items-center mb-4" style={{ flexWrap: 'wrap', gap: 12 }}>
-                <div className="flex gap-4" style={{ flexWrap: 'wrap' }}>
-                  <button 
-                    className={activeTab === 'existing' ? 'primary' : 'outline'} 
-                    onClick={() => setActiveTab('existing')}
-                    title="View registered active and deactivated users"
-                    data-tooltip="View registered users"
-                  >
-                    Existing Users
-                  </button>
-                  <button 
-                    className={activeTab === 'pending' ? 'primary' : 'outline'} 
-                    onClick={() => setActiveTab('pending')}
-                    title="View user registrations awaiting approval"
-                    data-tooltip="View pending requests"
-                  >
-                    Pending Approval ({pendingRequests.length})
-                  </button>
-                </div>
-                <button 
-                  className="outline flex items-center gap-2" 
-                  disabled={isRefreshingUsers}
-                  onClick={handleRefreshUsers}
-                  title="Reload users and pending registration requests"
-                  data-tooltip="Refresh users & requests"
-                >
-                  <FaSyncAlt size={13} className={isRefreshingUsers ? 'spin' : ''} />
-                  {isRefreshingUsers ? 'Refreshing...' : 'Refresh'}
-                </button>
-              </div>
-
-              {activeTab === 'pending' && (
-                <div className="flex-col gap-4">
-                  {pendingRequests.length === 0 && <p className="text-muted">No pending requests.</p>}
-                  {pendingRequests.map(req => {
-                    const reqData = JSON.parse(req.data || '{}');
-                    const { fullName, formattedData } = getDisplayData(req, reqData);
-                    
-                    const textEntries: [string, any][] = [];
-                    const imgEntries: [string, any][] = [];
-                    for (const [k, v] of Object.entries(formattedData)) {
-                      if (isImgUrl(v)) imgEntries.push([k, v]);
-                      else textEntries.push([k, v]);
-                    }
-
-                    const isApproving = actionLoading?.id === req.id && actionLoading?.action === 'approve';
-                    const isRejecting = actionLoading?.id === req.id && actionLoading?.action === 'reject';
-                    const isApproved = actionCompleted?.id === req.id && actionCompleted?.action === 'approve';
-                    const isRejected = actionCompleted?.id === req.id && actionCompleted?.action === 'reject';
-                    const isRequestBusy = isApproving || isRejecting || isApproved || isRejected;
-
-                    return (
-                      <div key={req.id} className="card" style={{ padding: 18 }}>
-                        <div className="flex justify-between items-start" style={{ flexWrap: 'wrap', gap: 16 }}>
-                          <div style={{ flex: 1, minWidth: '240px' }}>
-                            <div style={{ fontWeight: 'bold', fontSize: '1.1rem', color: '#1e293b' }}>{fullName}</div>
-                            <div className="text-sm text-muted" style={{ marginTop: 6, lineHeight: 1.5 }}>
-                              {textEntries.map(([k, v]) => `${k}: ${v}`).join(' | ')}
-                            </div>
-
-                            {/* Cloudinary & Image Thumbnails */}
-                            {imgEntries.length > 0 && (
-                              <div style={{ display: 'flex', gap: 14, marginTop: 12, flexWrap: 'wrap' }}>
-                                {imgEntries.map(([label, url]) => (
-                                  <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>{label}</span>
-                                    <div 
-                                      style={{ 
-                                        position: 'relative', width: 72, height: 72, borderRadius: 8, 
-                                        overflow: 'hidden', border: '1px solid #cbd5e1', cursor: 'pointer',
-                                        boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
-                                      }}
-                                      onClick={() => setImagePreviewUrl(url)}
-                                      title="Click to view full image"
-                                    >
-                                      <img src={url} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                      <div style={{ 
-                                        position: 'absolute', bottom: 3, right: 3, 
-                                        backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, 
-                                        padding: 3, display: 'flex', alignItems: 'center', justifyContent: 'center' 
-                                      }}>
-                                        <FaSearchPlus color="#fff" size={10} />
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            <div className="text-sm text-muted mt-2">
-                              Form: <strong>{req.form?.name}</strong> | Requested Role ID: <strong>{req.requestedRoleId}</strong>
-                            </div>
-                          </div>
-                          <div className="flex-col gap-2" style={{ minWidth: '160px' }}>
-                            <select 
-                              id={`role-${req.id}`} 
-                              defaultValue={req.requestedRoleId} 
-                              style={{ marginBottom: '0.5rem' }}
-                              title="Select role to assign upon approval"
-                              disabled={isRequestBusy}
-                            >
-                              {roles.map(r => (
-                                <option key={r.id} value={r.id}>{r.name}</option>
-                              ))}
-                            </select>
-                            <div className="flex gap-2">
-                              <button 
-                                className={`success flex items-center justify-center gap-2 ${isApproved ? 'btn-success-state' : ''}`} 
-                                style={{ backgroundColor: 'var(--success)', color: 'white', flex: 1 }}
-                                disabled={isRequestBusy}
-                                title={isApproving ? `Approving registration for ${fullName}...` : `Approve registration for ${fullName} and assign role`}
-                                data-tooltip={isApproving ? "Approving registration..." : "Approve and assign role"}
-                                data-tooltip-pos="bottom"
-                                onClick={() => {
-                                  const select = document.getElementById(`role-${req.id}`) as HTMLSelectElement;
-                                  handleAction(req.id, 'approve', { roleId: Number(select?.value) }, true, fullName);
-                                }}
-                              >
-                                {isApproving ? (
-                                  <>
-                                    <FaSpinner className="spin" /> Approving...
-                                  </>
-                                ) : isApproved ? (
-                                  <>
-                                    <FaCheck /> Approved!
-                                  </>
-                                ) : (
-                                  <>
-                                    <FaCheckCircle /> Approve
-                                  </>
-                                )}
-                              </button>
-                              <button 
-                                className={`danger flex items-center justify-center gap-2 ${isRejected ? 'btn-danger-state' : ''}`}
-                                style={{ flex: 1 }}
-                                disabled={isRequestBusy}
-                                title={isRejecting ? `Rejecting registration for ${fullName}...` : `Reject registration request for ${fullName}`}
-                                data-tooltip={isRejecting ? "Rejecting registration..." : "Reject request"}
-                                data-tooltip-pos="bottom"
-                                onClick={() => {
-                                  const reason = prompt(`Rejection reason for ${fullName} (optional):`);
-                                  if (reason !== null) {
-                                    handleAction(req.id, 'reject', { reason }, true, fullName);
-                                  }
-                                }}
-                              >
-                                {isRejecting ? (
-                                  <>
-                                    <FaSpinner className="spin" /> Rejecting...
-                                  </>
-                                ) : isRejected ? (
-                                  <>
-                                    <FaTimes /> Rejected!
-                                  </>
-                                ) : (
-                                  <>
-                                    <FaTimesCircle /> Reject
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {activeTab === 'existing' && (
-                <div className="flex-col">
-                  {Object.keys(usersByRole).length === 0 && (
-                    <div className="card text-center text-muted" style={{ padding: '2rem' }}>
-                      No existing users found.
-                    </div>
-                  )}
-                  {Object.entries(usersByRole).map(([roleName, roleUsers]) => (
-                    <div key={roleName} style={{ marginBottom: 12 }}>
-                      <div 
-                        className="accordion-header" 
-                        onClick={() => setOpenSection(openSection === roleName ? null : roleName)}
-                        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-                      >
-                        <div className="flex gap-4 items-center">
-                          <span className="badge" style={{ backgroundColor: 'var(--secondary)' }}>{(roleUsers as any[]).length}</span>
-                          <span style={{ fontWeight: 600 }}>{roleName}</span>
-                        </div>
-                        <span style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>
-                          {openSection === roleName ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
-                        </span>
-                      </div>
-                      
-                      {openSection === roleName && (
-                        <div className="accordion-content">
-                          {(roleUsers as any[]).map((u: any) => (
-                            <div key={u.id} className="user-card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                              <div className="flex justify-between items-start" style={{ flexWrap: 'wrap', gap: 8 }}>
-                                <div>
-                                  <div style={{ fontWeight: 'bold' }}>{u.fullName}</div>
-                                  <div className="text-sm text-muted">{u.employeeId} | {u.department}</div>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                  <span className={`badge ${u.status.toLowerCase()}`}>{u.status}</span>
-                                  {u.status === 'DEACTIVATED' ? (
-                                    <button 
-                                      className="primary" 
-                                      onClick={() => setConfirmModal({ id: u.id, action: 'reactivate', name: u.fullName })}
-                                      title={`Reactivate account for ${u.fullName}`}
-                                      data-tooltip="Reactivate account"
-                                      data-tooltip-pos="left"
-                                    >
-                                      Reactivate
-                                    </button>
-                                  ) : (
-                                    <button 
-                                      className="danger outline" 
-                                      onClick={() => setConfirmModal({ id: u.id, action: 'deactivate', name: u.fullName })}
-                                      title={`Deactivate account for ${u.fullName}`}
-                                      data-tooltip="Deactivate account"
-                                      data-tooltip-pos="left"
-                                    >
-                                      Deactivate
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="text-sm bg-gray-50" style={{ padding: 16, borderRadius: 8, backgroundColor: '#fdfdfd', border: '1px solid #e0e0e0', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}>
-                                {(() => {
-                                  try {
-                                    const meta = JSON.parse(u.metadata || '{}');
-                                    const cleanedMeta: Record<string, any> = {};
-                                    for (const [k, v] of Object.entries(meta)) {
-                                      if (k.toLowerCase().includes('password')) continue;
-                                      if (k.startsWith('field_')) continue;
-                                      cleanedMeta[k] = v;
-                                    }
-
-                                    if (Object.keys(cleanedMeta).length === 0) return <span className="text-muted">No additional details</span>;
-                                    
-                                    return (
-                                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-                                        {Object.entries(cleanedMeta).map(([k, v]) => {
-                                          const isImg = isImgUrl(v);
-                                          return (
-                                            <div key={k} style={{ display: 'flex', flexDirection: 'column' }}>
-                                              <span className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{k}</span>
-                                              {isImg ? (
-                                                <div 
-                                                  style={{ 
-                                                    position: 'relative', width: 72, height: 72, borderRadius: 8, 
-                                                    overflow: 'hidden', border: '1px solid var(--border)', marginTop: 4, cursor: 'pointer',
-                                                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
-                                                  }}
-                                                  onClick={() => setImagePreviewUrl(v)}
-                                                  title="Click to view full image"
-                                                >
-                                                  <img src={v} alt={k} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                  <div style={{ 
-                                                    position: 'absolute', bottom: 3, right: 3, 
-                                                    backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, 
-                                                    padding: 3, display: 'flex', alignItems: 'center', justifyContent: 'center' 
-                                                  }}>
-                                                    <FaSearchPlus color="#fff" size={10} />
-                                                  </div>
-                                                </div>
-                                              ) : (
-                                                <strong style={{ color: '#333' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</strong>
-                                              )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    );
-                                  } catch (e) {
-                                    return null;
-                                  }
-                                })()}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+          {currentView === 'manage-users' && <ManageUsers user={user} onUserUpdate={fetchNotifications} />}
 
           {currentView === 'home' && (
             <div className="card text-center" style={{ padding: 64, marginTop: 32 }}>
@@ -1244,49 +793,6 @@ export default function Dashboard({ user, onLogout }: Props) {
             >
               <FaTimes size={20} />
             </button>
-          </div>
-        </div>
-      )}
-
-      {confirmModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="card" style={{ width: '400px' }}>
-            <h3 style={{ marginTop: 0 }}>Confirm Action</h3>
-            <p>
-              Are you sure you want to <strong>{confirmModal.action}</strong> user <strong>{confirmModal.name}</strong>?
-              {confirmModal.action === 'deactivate' && ' They will no longer be able to log in.'}
-            </p>
-            <div className="flex gap-4" style={{ marginTop: '2rem', justifyContent: 'flex-end' }}>
-              <button 
-                className="outline" 
-                disabled={actionLoading?.id === confirmModal.id} 
-                onClick={() => setConfirmModal(null)}
-                title="Cancel and close dialog"
-                data-tooltip="Cancel"
-              >
-                Cancel
-              </button>
-              <button 
-                className={`flex items-center gap-2 ${confirmModal.action === 'deactivate' ? 'danger' : 'primary'}`}
-                style={confirmModal.action === 'reactivate' ? { backgroundColor: 'var(--success)', color: 'white' } : {}}
-                disabled={actionLoading?.id === confirmModal.id}
-                title={`Confirm ${confirmModal.action} user ${confirmModal.name}`}
-                data-tooltip={`Confirm ${confirmModal.action}`}
-                onClick={async () => {
-                  const { id, action, name } = confirmModal;
-                  await handleAction(id, action, {}, false, name);
-                  setConfirmModal(null);
-                }}
-              >
-                {actionLoading?.id === confirmModal.id ? (
-                  <>
-                    <FaSpinner className="spin" /> {confirmModal.action === 'deactivate' ? 'Deactivating...' : 'Reactivating...'}
-                  </>
-                ) : (
-                  'Confirm'
-                )}
-              </button>
-            </div>
           </div>
         </div>
       )}
