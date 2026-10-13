@@ -68,6 +68,7 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoleFilter, setSelectedRoleFilter] = useState('ALL');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('ALL');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Accordion open state for roles (set of expanded role names)
   const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({});
@@ -547,35 +548,99 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
             </button>
           </div>
 
-          {/* Search Bar for Existing Users */}
+          {/* Search & Action Controls for Existing Users */}
           {activeTab === 'existing' && (
-            <div className="search-box-wrapper">
-              <FaSearch className="search-box-icon" />
-              <input
-                type="text"
-                className="search-box-input"
-                placeholder="Search by name, ID, mobile, dept..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              {searchQuery && (
+            <div className="toolbar-top-controls-right">
+              {/* Search Bar */}
+              <div className="search-box-wrapper">
+                <FaSearch className="search-box-icon" />
+                <input
+                  type="text"
+                  className="search-box-input"
+                  placeholder="Search by name, ID, mobile, dept..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    className="search-box-clear"
+                    onClick={() => setSearchQuery('')}
+                    title="Clear search query"
+                    aria-label="Clear search"
+                  >
+                    <FaTimes />
+                  </button>
+                )}
+              </div>
+
+              {/* Filters Toggle Button */}
+              {(() => {
+                const activeCount = (selectedRoleFilter !== 'ALL' ? 1 : 0) + (selectedStatusFilter !== 'ALL' ? 1 : 0);
+                const hasFilters = activeCount > 0;
+                return (
+                  <button
+                    type="button"
+                    className={`btn-toggle-filters-user ${showFilters ? 'active' : ''} ${hasFilters ? 'has-active' : ''}`}
+                    onClick={() => setShowFilters(prev => !prev)}
+                    title={showFilters ? 'Hide filters panel' : 'Open filter options'}
+                  >
+                    <FaFilter className="filter-btn-icon" />
+                    <span>Filters</span>
+                    {activeCount > 0 && <span className="active-filter-badge">{activeCount}</span>}
+                    {showFilters ? <FaChevronUp size={10} /> : <FaChevronDown size={10} />}
+                  </button>
+                );
+              })()}
+
+              {/* Expand / Collapse All Roles Button */}
+              {roleNames.length > 0 && (
                 <button
                   type="button"
-                  className="search-box-clear"
-                  onClick={() => setSearchQuery('')}
-                  title="Clear search query"
-                  aria-label="Clear search"
+                  className="btn-toggle-all-accordions"
+                  onClick={handleToggleAllAccordions}
+                  title={allRolesExpanded ? 'Collapse all role groups' : 'Expand all role groups'}
                 >
-                  <FaTimes />
+                  {allRolesExpanded ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
+                  <span>{allRolesExpanded ? 'Collapse All' : 'Expand All'}</span>
                 </button>
               )}
             </div>
           )}
         </div>
 
-        {/* Row 2: Secondary Filter Strip & Accordion Toggle (Only on Existing Users) */}
-        {activeTab === 'existing' && (
-          <div className="toolbar-filter-strip">
+        {/* Active Filters Summary Chips (When filter strip is closed but filters are active) */}
+        {activeTab === 'existing' && !showFilters && (selectedRoleFilter !== 'ALL' || selectedStatusFilter !== 'ALL') && (
+          <div className="active-filters-chips-strip fade-in">
+            <span className="active-chips-label">Filters Applied:</span>
+            {selectedRoleFilter !== 'ALL' && (
+              <span className="filter-chip">
+                Role: {selectedRoleFilter}
+                <button type="button" onClick={() => setSelectedRoleFilter('ALL')}>✕</button>
+              </span>
+            )}
+            {selectedStatusFilter !== 'ALL' && (
+              <span className="filter-chip">
+                Status: {selectedStatusFilter}
+                <button type="button" onClick={() => setSelectedStatusFilter('ALL')}>✕</button>
+              </span>
+            )}
+            <button
+              type="button"
+              className="btn-clear-all-chips"
+              onClick={() => {
+                setSelectedRoleFilter('ALL');
+                setSelectedStatusFilter('ALL');
+              }}
+            >
+              Clear All
+            </button>
+          </div>
+        )}
+
+        {/* Row 2: Secondary Filter Strip: ONLY shown when user clicks Filters toggle */}
+        {activeTab === 'existing' && showFilters && (
+          <div className="toolbar-filter-strip fade-in">
             <div className="filter-controls-left">
               <div className="filter-label-group">
                 <FaFilter className="filter-icon" />
@@ -612,14 +677,13 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
               </div>
 
               {/* Reset Filters Button */}
-              {(selectedRoleFilter !== 'ALL' || selectedStatusFilter !== 'ALL' || searchQuery.trim() !== '') && (
+              {(selectedRoleFilter !== 'ALL' || selectedStatusFilter !== 'ALL') && (
                 <button
                   type="button"
                   className="btn-clear-inline-filters"
                   onClick={() => {
                     setSelectedRoleFilter('ALL');
                     setSelectedStatusFilter('ALL');
-                    setSearchQuery('');
                   }}
                   title="Reset all active filters"
                 >
@@ -629,20 +693,16 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
               )}
             </div>
 
-            {/* Right side: Accordion Collapse/Expand Controls */}
-            {roleNames.length > 0 && (
-              <div className="filter-controls-right">
-                <button
-                  type="button"
-                  className="btn-toggle-all-accordions"
-                  onClick={handleToggleAllAccordions}
-                  title={allRolesExpanded ? 'Collapse all role groups' : 'Expand all role groups'}
-                >
-                  {allRolesExpanded ? <FaChevronUp size={12} /> : <FaChevronDown size={12} />}
-                  <span>{allRolesExpanded ? 'Collapse All' : 'Expand All'}</span>
-                </button>
-              </div>
-            )}
+            <div className="filter-controls-right">
+              <button
+                type="button"
+                className="btn-small btn-apply-filter"
+                onClick={() => setShowFilters(false)}
+                style={{ padding: '0.45rem 1rem', borderRadius: '8px', cursor: 'pointer', background: 'var(--primary)', color: '#fff', border: 'none', fontWeight: 600, fontSize: '0.825rem' }}
+              >
+                Close Filters
+              </button>
+            </div>
           </div>
         )}
       </div>

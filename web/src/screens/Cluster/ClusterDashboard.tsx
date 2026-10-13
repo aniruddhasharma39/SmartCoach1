@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FaArchway, FaMapMarkerAlt, FaCogs, FaCamera, FaSun, 
-  FaBolt, FaPlug, FaCheckCircle, FaSearchPlus, FaTimes, FaRedo, FaTrash 
+  FaBolt, FaPlug, FaCheckCircle, FaSearchPlus, FaTimes, FaRedo, FaTrash,
+  FaFilter, FaChevronDown, FaChevronUp
 } from 'react-icons/fa';
 import type { User } from '../../types';
 import './ClusterDashboard.css';
@@ -47,6 +48,7 @@ export default function ClusterDashboard(_props: Props) {
   const [filterName, setFilterName] = useState('');
   const [filterLc, setFilterLc] = useState('');
   const [sortBy, setSortBy] = useState('newest');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Modals
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -134,7 +136,18 @@ export default function ClusterDashboard(_props: Props) {
     setSortBy('newest');
   };
 
-  const hasActiveFilters = filterZone || filterDivision || filterLocation || filterName || filterLc || sortBy !== 'newest';
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filterZone) count++;
+    if (filterDivision) count++;
+    if (filterLocation.trim()) count++;
+    if (filterName.trim()) count++;
+    if (filterLc.trim()) count++;
+    if (sortBy !== 'newest') count++;
+    return count;
+  }, [filterZone, filterDivision, filterLocation, filterName, filterLc, sortBy]);
+
+  const hasActiveFilters = activeFilterCount > 0;
 
   const handleDeleteGate = async () => {
     if (deleteConfirmText !== selectedGate.name && deleteConfirmText !== selectedGate.lcNumber) {
@@ -162,55 +175,146 @@ export default function ClusterDashboard(_props: Props) {
     <div className="cluster-container fade-in">
       {view === 'list' && (
         <div className="gate-list-view">
-          <div className="cluster-toolbar glass-card">
-            <div className="filter-grid">
-              <div className="form-group">
-                <label>Zone</label>
-                <select className="glass-input" value={filterZone} onChange={(e) => { setFilterZone(e.target.value); setFilterDivision(''); }}>
-                  <option value="">All Zones</option>
-                  {refZones.map((z) => <option key={z} value={z}>{z}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Division</label>
-                <select className="glass-input" value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)}>
-                  <option value="">All Divisions</option>
-                  {divisionOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Location</label>
-                <input className="glass-input" type="text" placeholder="Search location…" value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label>Gate Name</label>
-                <input className="glass-input" type="text" placeholder="Search gate name…" value={filterName} onChange={(e) => setFilterName(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label>LC Number</label>
-                <input className="glass-input" type="text" placeholder="e.g. LC-0001" value={filterLc} onChange={(e) => setFilterLc(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label>Sort By</label>
-                <select className="glass-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                  {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </div>
+          {/* Header Row: Title on Left, Filter Toggle & Create Button on Right */}
+          <div className="cluster-header-row mb-4">
+            <div className="cluster-header-left">
+              <h2 className="title-gradient" style={{ margin: 0 }}>LC Gate Clusters</h2>
+              <span className="cluster-gates-count-badge">
+                {visibleGates.length} {visibleGates.length === 1 ? 'Gate' : 'Gates'}
+              </span>
             </div>
-            {hasActiveFilters && (
-              <div className="toolbar-actions">
-                <button className="btn-small btn-outline" onClick={resetFilters}>✕ Clear Filters</button>
-              </div>
-            )}
+
+            <div className="cluster-header-actions">
+              {/* Filter Toggle Button */}
+              <button
+                type="button"
+                className={`btn-toggle-filters ${showFilters ? 'active' : ''} ${hasActiveFilters ? 'has-active' : ''}`}
+                onClick={() => setShowFilters(prev => !prev)}
+                title={showFilters ? 'Close filter options' : 'Open filter options'}
+              >
+                <FaFilter className="filter-btn-icon" />
+                <span>Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="active-filter-badge">{activeFilterCount}</span>
+                )}
+                {showFilters ? <FaChevronUp size={11} /> : <FaChevronDown size={11} />}
+              </button>
+
+              <button className="btn-primary flex items-center gap-2 pulse-hover" onClick={() => setView('create_gate')}>
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14m-7-7h14"/></svg>
+                <span>Create New Gate</span>
+              </button>
+            </div>
           </div>
 
-          <div className="flex justify-between items-center mb-6" style={{ marginTop: '24px' }}>
-            <h2 className="title-gradient">LC Gate Clusters</h2>
-            <button className="btn-primary flex items-center gap-2 pulse-hover" onClick={() => setView('create_gate')}>
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14m-7-7h14"/></svg>
-              Create New Gate
-            </button>
-          </div>
+          {/* Active Filter Chips Strip (Visible when filter panel is collapsed but filters are applied) */}
+          {!showFilters && hasActiveFilters && (
+            <div className="active-filters-chips-strip mb-4 fade-in">
+              <span className="active-chips-label">Active Filters:</span>
+              {filterZone && (
+                <span className="filter-chip">
+                  Zone: {filterZone}
+                  <button type="button" onClick={() => { setFilterZone(''); setFilterDivision(''); }}>✕</button>
+                </span>
+              )}
+              {filterDivision && (
+                <span className="filter-chip">
+                  Div: {filterDivision}
+                  <button type="button" onClick={() => setFilterDivision('')}>✕</button>
+                </span>
+              )}
+              {filterLocation && (
+                <span className="filter-chip">
+                  Location: {filterLocation}
+                  <button type="button" onClick={() => setFilterLocation('')}>✕</button>
+                </span>
+              )}
+              {filterName && (
+                <span className="filter-chip">
+                  Gate: {filterName}
+                  <button type="button" onClick={() => setFilterName('')}>✕</button>
+                </span>
+              )}
+              {filterLc && (
+                <span className="filter-chip">
+                  LC: {filterLc}
+                  <button type="button" onClick={() => setFilterLc('')}>✕</button>
+                </span>
+              )}
+              {sortBy !== 'newest' && (
+                <span className="filter-chip">
+                  Sort: {SORT_OPTIONS.find(o => o.value === sortBy)?.label}
+                  <button type="button" onClick={() => setSortBy('newest')}>✕</button>
+                </span>
+              )}
+              <button type="button" className="btn-clear-all-chips" onClick={resetFilters}>
+                Clear All
+              </button>
+            </div>
+          )}
+
+          {/* Collapsible Filter Bar: Only rendered when user clicks 'Filters' */}
+          {showFilters && (
+            <div className="cluster-toolbar glass-card mb-6 fade-in">
+              <div className="filter-grid">
+                <div className="form-group">
+                  <label>Zone</label>
+                  <select className="glass-input" value={filterZone} onChange={(e) => { setFilterZone(e.target.value); setFilterDivision(''); }}>
+                    <option value="">All Zones</option>
+                    {refZones.map((z) => <option key={z} value={z}>{z}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Division</label>
+                  <select className="glass-input" value={filterDivision} onChange={(e) => setFilterDivision(e.target.value)}>
+                    <option value="">All Divisions</option>
+                    {divisionOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label>Location</label>
+                  <input className="glass-input" type="text" placeholder="Search location…" value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>Gate Name</label>
+                  <input className="glass-input" type="text" placeholder="Search gate name…" value={filterName} onChange={(e) => setFilterName(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>LC Number</label>
+                  <input className="glass-input" type="text" placeholder="e.g. LC-0001" value={filterLc} onChange={(e) => setFilterLc(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label>Sort By</label>
+                  <select className="glass-input" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                    {SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="toolbar-bottom-actions">
+                <div className="filter-active-summary">
+                  {hasActiveFilters ? (
+                    <span className="filter-status-text">
+                      <FaCheckCircle style={{ color: '#10b981' }} /> {activeFilterCount} filter{activeFilterCount > 1 ? 's' : ''} applied
+                    </span>
+                  ) : (
+                    <span className="filter-status-text" style={{ color: 'var(--text-muted)' }}>Showing all records without filters</span>
+                  )}
+                </div>
+
+                <div className="filter-action-buttons">
+                  {hasActiveFilters && (
+                    <button type="button" className="btn-small btn-outline" onClick={resetFilters}>
+                      ✕ Clear Filters
+                    </button>
+                  )}
+                  <button type="button" className="btn-small btn-apply-filter" onClick={() => setShowFilters(false)}>
+                    Close Filter Panel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {fetchError && (
             <div className="alert-card alert-danger mb-4 fade-in" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '12px 16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
