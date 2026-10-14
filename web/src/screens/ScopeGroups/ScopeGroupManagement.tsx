@@ -6,15 +6,11 @@ import {
   FaTrash,
   FaEdit,
   FaUsers,
-  FaCheck,
   FaTimes,
-  FaFilter,
   FaSyncAlt,
   FaMicrochip,
   FaInfoCircle,
   FaTag,
-  FaShieldAlt,
-  FaExternalLinkAlt,
   FaCheckDouble
 } from 'react-icons/fa';
 import type { User, ScopeGroupItem } from '../../types';
@@ -42,7 +38,7 @@ const authHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
 
-export default function ScopeGroupManagement({ user }: Props) {
+export default function ScopeGroupManagement({ user: _user }: Props) {
   const [scopeGroups, setScopeGroups] = useState<ScopeGroupItem[]>([]);
   const [allGates, setAllGates] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -50,8 +46,8 @@ export default function ScopeGroupManagement({ user }: Props) {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Zone/Division reference
-  const [zones, setZones] = useState<string[]>(RAILWAY_ZONES);
-  const [divisionsByZone, setDivisionsByZone] = useState<Record<string, string[]>>(RAILWAY_DATA);
+  const zones = RAILWAY_ZONES;
+  const divisionsByZone = RAILWAY_DATA;
 
   // Modal State for Create / Edit
   const [isModalOpen, setIsModalOpen] = useState(false);

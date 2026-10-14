@@ -372,7 +372,7 @@ export default function ClusterDashboard(_props: Props) {
           {fetchError && (
             <div className="alert-card alert-danger mb-4 fade-in" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', color: '#ef4444', padding: '12px 16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <span>⚠️ {fetchError}</span>
-              <button className="btn-small btn-primary" onClick={fetchGates} style={{ padding: '6px 14px' }}>Retry</button>
+              <button className="btn-small btn-primary" onClick={() => fetchGates()} style={{ padding: '6px 14px' }}>Retry</button>
             </div>
           )}
 
