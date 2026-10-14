@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../main.dart';
+import '../utils/app_feedback.dart';
 
 class RegistrationBuilderScreen extends StatelessWidget {
   final Map<String, dynamic> user;
@@ -22,6 +23,17 @@ class RegistrationBuilderScreen extends StatelessWidget {
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey, fontSize: 16),
             ),
+          ),
+          const SizedBox(height: 24),
+          OutlinedButton.icon(
+            onPressed: () {
+              AppFeedback.showInfo(
+                context,
+                'Form Schema Builder is active on the Web Developer Console.',
+              );
+            },
+            icon: const Icon(Icons.info_outline),
+            label: const Text('Builder Information'),
           ),
         ],
       ),

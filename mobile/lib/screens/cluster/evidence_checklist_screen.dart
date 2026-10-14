@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'upload_evidence_screen.dart';
 import '../../config.dart';
+import '../../utils/app_feedback.dart';
 
 class EvidenceChecklistScreen extends StatefulWidget {
   final String token;
@@ -21,6 +22,36 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
   void initState() {
     super.initState();
     evidences = widget.master['evidences'] ?? [];
+  }
+
+  Future<void> _fetchEvidences({bool isManual = false}) async {
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/lcgate'),
+        headers: {'Authorization': 'Bearer ${widget.token}'},
+      );
+      if (res.statusCode == 200) {
+        final List data = json.decode(res.body);
+        for (final g in data) {
+          final masters = g['masters'] as List? ?? [];
+          for (final m in masters) {
+            if (m['id'] == widget.master['id']) {
+              if (mounted) {
+                setState(() => evidences = m['evidences'] ?? []);
+                if (isManual) {
+                  AppFeedback.showSuccess(context, 'Evidence checklist synchronized.');
+                }
+              }
+              return;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted && isManual) {
+        AppFeedback.showError(context, 'Unable to refresh checklist: $e');
+      }
+    }
   }
 
   bool _hasEvidence(String category, [int? childId]) {
@@ -57,17 +88,17 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
     });
   }
 
-  Future<void> _deleteEvidence(Map evidence) async {
+  Future<void> _deleteEvidence(Map evidence, String itemTitle) async {
     bool confirm = await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Photo?'),
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('Delete Photo for "$itemTitle"?'),
         content: const Text('Are you sure you want to delete this uploaded photo? This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(dialogCtx, true),
             child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -85,8 +116,9 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
           evidences.removeWhere((e) => e['id'] == evidence['id']);
         });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Photo deleted successfully')),
+          AppFeedback.showSuccess(
+            context,
+            'Photo for "$itemTitle" deleted successfully.',
           );
         }
       } else {
@@ -94,11 +126,13 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
         if (res.statusCode == 404 || msg.contains('Cannot DELETE')) {
           msg = 'Server route not found (404). The backend on Render does not have the DELETE endpoint deployed yet.';
         }
-        throw Exception(msg);
+        if (mounted) {
+          AppFeedback.showError(context, msg);
+        }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        AppFeedback.showError(context, 'Network error deleting photo: $e');
       }
     }
   }
@@ -143,8 +177,10 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
         targetName: name,
       )
     ));
+    if (!mounted) return;
     if (result != null && result is Map) {
       _onUploadSuccess(result);
+      AppFeedback.showSuccess(context, 'Checklist updated: photo recorded for "$name".');
     }
   }
 
@@ -155,42 +191,55 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
     List childDevices = widget.master['childDevices'] ?? [];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Evidence Checklist')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(bottom: 16),
-            child: Text('Upload all required photos for this Master Unit.', style: TextStyle(color: Colors.grey)),
+      appBar: AppBar(
+        title: const Text('Evidence Checklist'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh Checklist',
+            onPressed: () => _fetchEvidences(isManual: true),
           ),
-          
-          _buildChecklistItem(
-            title: 'Master Unit (ESP)',
-            description: 'Photo showing the ESP installation',
-            isDone: hasMaster,
-            evidence: _findEvidence('MASTER'),
-            onUpload: () => _navigateToUpload('MASTER', 'Master ESP'),
-          ),
-          
-          _buildChecklistItem(
-            title: '${widget.master['powerSource'] == 'SOLAR' ? 'Solar Panel' : 'Direct Power'} Source',
-            description: 'Photo verifying the power installation',
-            isDone: hasPower,
-            evidence: _findEvidence('POWER_SOURCE'),
-            onUpload: () => _navigateToUpload('POWER_SOURCE', 'Power Source'),
-          ),
-
-          ...childDevices.map((dev) {
-            bool hasDev = _hasEvidence(dev['type'], dev['id']);
-            return _buildChecklistItem(
-              title: 'Slave ${dev['type']}',
-              description: dev['type'] == 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor',
-              isDone: hasDev,
-              evidence: _findEvidence(dev['type'], dev['id']),
-              onUpload: () => _navigateToUpload(dev['type'], 'Slave ${dev['type']}', dev['id']),
-            );
-          }),
         ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => _fetchEvidences(isManual: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Text('Upload all required photos for this Master Unit.', style: TextStyle(color: Colors.grey)),
+            ),
+            
+            _buildChecklistItem(
+              title: 'Master Unit (ESP)',
+              description: 'Photo showing the ESP installation',
+              isDone: hasMaster,
+              evidence: _findEvidence('MASTER'),
+              onUpload: () => _navigateToUpload('MASTER', 'Master ESP'),
+            ),
+            
+            _buildChecklistItem(
+              title: '${widget.master['powerSource'] == 'SOLAR' ? 'Solar Panel' : 'Direct Power'} Source',
+              description: 'Photo verifying the power installation',
+              isDone: hasPower,
+              evidence: _findEvidence('POWER_SOURCE'),
+              onUpload: () => _navigateToUpload('POWER_SOURCE', 'Power Source'),
+            ),
+
+            ...childDevices.map((dev) {
+              bool hasDev = _hasEvidence(dev['type'], dev['id']);
+              return _buildChecklistItem(
+                title: 'Slave ${dev['type']}',
+                description: dev['type'] == 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor',
+                isDone: hasDev,
+                evidence: _findEvidence(dev['type'], dev['id']),
+                onUpload: () => _navigateToUpload(dev['type'], 'Slave ${dev['type']}', dev['id']),
+              );
+            }),
+          ],
+        ),
       ),
     );
   }
@@ -231,7 +280,7 @@ class _EvidenceChecklistScreenState extends State<EvidenceChecklistScreen> {
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.red),
                   tooltip: 'Delete Photo',
-                  onPressed: () => _deleteEvidence(evidence!),
+                  onPressed: () => _deleteEvidence(evidence!, title),
                 ),
               ],
             )

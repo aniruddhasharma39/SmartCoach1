@@ -11,6 +11,7 @@ import 'registration_builder_screen.dart';
 import 'cluster/cluster_main_screen.dart';
 import 'profile_screen.dart';
 import 'scope_groups/scope_groups_screen.dart';
+import '../utils/app_feedback.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -164,6 +165,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _notifications.clear();
         _unreadNotifsCount = 0;
       });
+      AppFeedback.showInfo(context, 'All notifications cleared.');
     }
     try {
       final token = await _getToken();
@@ -189,6 +191,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           }
           _unreadNotifsCount = 0;
         });
+        AppFeedback.showSuccess(context, 'All notifications marked as read.');
       }
     } catch (_) {}
   }
@@ -222,6 +225,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
         _notifications.removeWhere((n) => n['id'].toString() == id);
       });
+      AppFeedback.showInfo(context, 'Notification dismissed.');
     }
     try {
       final token = await _getToken();
@@ -692,7 +696,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   List<dynamic> _pendingRequests = [];
 
-  Future<void> _actionUser(int id, String action, [Map<String, dynamic>? body, bool isRequest = false]) async {
+  Future<void> _actionUser(
+    int id,
+    String action, [
+    Map<String, dynamic>? body,
+    bool isRequest = false,
+    String? targetName,
+    String? roleName,
+  ]) async {
     final token = await _getToken();
     final endpoint = isRequest ? 'request/$id/$action' : '$id/$action';
     try {
@@ -707,14 +718,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ));
       _fetchData();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Action completed successfully!'),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-        ));
+        final name = targetName != null && targetName.trim().isNotEmpty ? targetName.trim() : 'User';
+        if (action == 'approve') {
+          final roleSuffix = roleName != null && roleName.isNotEmpty ? ' with role "$roleName"' : '';
+          AppFeedback.showSuccess(context, 'Registration for "$name" approved successfully$roleSuffix!');
+        } else if (action == 'reject') {
+          AppFeedback.showInfo(context, 'Registration request for "$name" has been rejected.');
+        } else if (action == 'deactivate') {
+          AppFeedback.showWarning(context, 'User "$name" has been deactivated and access revoked.');
+        } else if (action == 'reactivate') {
+          AppFeedback.showSuccess(context, 'User "$name" has been reactivated successfully.');
+        } else {
+          AppFeedback.showSuccess(context, 'Action completed for "$name".');
+        }
       }
     } catch (e) {
-      print(e);
+      if (mounted) {
+        AppFeedback.showError(context, 'Failed to perform $action on user: $e');
+      }
     }
   }
 
@@ -1160,22 +1181,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     }
                   },
                 ),
-                const SizedBox(height: 20),
-                Row(
+                const SizedBox(height: 20),                Row(
                   children: [
                     Expanded(child: ElevatedButton(
                       style: ElevatedButton.styleFrom(backgroundColor: AppColors.success, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), padding: const EdgeInsets.symmetric(vertical: 12)),
-                      onPressed: () => _actionUser(req['id'], 'approve', {'roleId': selectedRole}, true),
+                      onPressed: () {
+                        String assignedRoleName = 'Selected Role';
+                        final matchedRole = _roles.firstWhere((r) => r['id'] == selectedRole, orElse: () => null);
+                        if (matchedRole != null && matchedRole['name'] != null) {
+                          assignedRoleName = matchedRole['name'];
+                        }
+                        _actionUser(req['id'], 'approve', {'roleId': selectedRole}, true, displayName, assignedRoleName);
+                      },
                       child: const Text('Approve', style: TextStyle(fontWeight: FontWeight.bold)),
                     )),
                     const SizedBox(width: 12),
                     Expanded(child: OutlinedButton(
                       style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, side: const BorderSide(color: AppColors.danger), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), padding: const EdgeInsets.symmetric(vertical: 12)),
-                      onPressed: () => _actionUser(req['id'], 'reject', {'reason': 'Rejected by admin'}, true),
+                      onPressed: () => _actionUser(req['id'], 'reject', {'reason': 'Rejected by admin'}, true, displayName),
                       child: const Text('Reject', style: TextStyle(fontWeight: FontWeight.bold)),
                     )),
                   ],
-                )
+                ),
               ],
             ),
           )
@@ -1495,6 +1522,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 _userSearchQuery = '';
                                 _userStatusFilter = 'ALL';
                               });
+                              AppFeedback.showInfo(context, 'User search and status filters cleared.');
                             },
                           ),
                         ],
@@ -1639,24 +1667,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   onPressed: () async {
                                     final isDeactivated = u['status'] == 'DEACTIVATED';
                                     final actionName = isDeactivated ? 'reactivate' : 'deactivate';
+                                    final userName = (u['fullName'] ?? 'User').toString();
                                     
                                     final confirm = await showDialog<bool>(
                                       context: context,
                                       builder: (context) => AlertDialog(
                                         title: Text('Confirm ${isDeactivated ? 'Reactivation' : 'Deactivation'}'),
-                                        content: Text('Are you sure you want to $actionName this user?'),
+                                        content: Text('Are you sure you want to $actionName user "$userName"?'),
                                         actions: [
                                           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
                                           ElevatedButton(
                                             onPressed: () => Navigator.pop(context, true),
-                                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                                            style: ElevatedButton.styleFrom(backgroundColor: isDeactivated ? AppColors.success : AppColors.danger),
                                             child: const Text('Confirm', style: TextStyle(color: Colors.white)),
                                           ),
                                         ],
                                       ),
                                     );
                                     if (confirm == true) {
-                                      _actionUser(u['id'], actionName);
+                                      _actionUser(u['id'], actionName, null, false, userName);
                                     }
                                   },
                                 ),

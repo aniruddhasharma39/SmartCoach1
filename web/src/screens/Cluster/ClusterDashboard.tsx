@@ -8,6 +8,7 @@ import type { User } from '../../types';
 import './ClusterDashboard.css';
 import { API_URL } from '../../config';
 import { RAILWAY_ZONES, RAILWAY_DATA } from './railwayData';
+import { useToast } from '../../context/ToastContext';
 
 type Props = {
   user: User;
@@ -31,6 +32,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function ClusterDashboard(_props: Props) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
   const [gates, setGates] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -164,6 +166,7 @@ export default function ClusterDashboard(_props: Props) {
     setFilterName('');
     setFilterLc('');
     setSortBy('newest');
+    toastInfo('Gate filters and sorting reset to defaults.', 'Filters Reset');
   };
 
   const activeFilterCount = useMemo(() => {
@@ -181,9 +184,10 @@ export default function ClusterDashboard(_props: Props) {
 
   const handleDeleteGate = async () => {
     if (deleteConfirmText !== selectedGate.name && deleteConfirmText !== selectedGate.lcNumber) {
-      alert("Name does not match!");
+      toastWarning("Confirmation text does not match gate name or LC number.", "Verification Failed");
       return;
     }
+    const gateLabel = selectedGate.name || selectedGate.lcNumber;
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate/${selectedGate.id}`, {
         method: 'DELETE',
@@ -195,9 +199,14 @@ export default function ClusterDashboard(_props: Props) {
         setSelectedGate(null);
         setView('list');
         fetchGates();
+        toastSuccess(`Gate "${gateLabel}" deleted successfully.`, "Gate Deleted");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toastError(err.error || 'Failed to delete gate from server.', 'Delete Error');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      toastError(e.message || 'Network error while deleting gate.', 'Network Error');
     }
   };
 
@@ -226,6 +235,7 @@ export default function ClusterDashboard(_props: Props) {
                       const val = e.target.value;
                       setDeveloperScopeId(val);
                       fetchGates(val);
+                      toastInfo(val === 'all' ? 'Switched to All Gates (Admin View).' : val ? 'Filtered gates by selected scope group.' : 'Switched to Assigned Scope.', 'Scope View');
                     }}
                     style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '0.82rem', fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }}
                   >
@@ -522,6 +532,7 @@ export default function ClusterDashboard(_props: Props) {
 }
 
 function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [name, setName] = useState('');
   const [lcNumberDigits, setLcNumberDigits] = useState('');
   const [locationName, setLocationName] = useState('');
@@ -544,15 +555,16 @@ function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
           setLat(position.coords.latitude.toString());
           setLng(position.coords.longitude.toString());
           setGettingLocation(false);
+          toastSuccess(`Acquired GPS: ${position.coords.latitude.toFixed(5)}, ${position.coords.longitude.toFixed(5)}`, 'GPS Located');
         },
         (error) => {
-          alert(`Error getting location: ${error.message}`);
+          toastError(`Error getting location: ${error.message}`, 'Location Error');
           setGettingLocation(false);
         },
         { enableHighAccuracy: true }
       );
     } else {
-      alert("Geolocation is not supported by your browser");
+      toastWarning("Geolocation is not supported by your browser.", "GPS Unavailable");
       setGettingLocation(false);
     }
   };
@@ -578,14 +590,15 @@ function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
         })
       });
       if (res.ok) {
+        toastSuccess(`LC Gate "${name || 'LC-' + lcNumberDigits}" created successfully.`, 'Gate Created');
         onSuccess();
       } else {
-        const err = await res.json();
-        alert(`Error: ${err.error || 'Failed to create gate'}`);
+        const err = await res.json().catch(() => ({}));
+        toastError(err.error || 'Failed to create gate', 'Creation Failed');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Network error');
+      toastError(e.message || 'Network error occurred while creating gate.', 'Network Error');
     }
     setSubmitting(false);
   };
@@ -660,6 +673,7 @@ function CreateGateForm({ onCancel, onSuccess, zones, divisionsByZone }: any) {
 }
 
 function GateDetailView({ gate, onBack, onUpdate }: any) {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [addingMaster, setAddingMaster] = useState(false);
   const [addingDeviceToMaster, setAddingDeviceToMaster] = useState<number | null>(null);
   const [uploadingEvidenceFor, setUploadingEvidenceFor] = useState<any>(null);
@@ -676,12 +690,15 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
       if (res.ok) {
         setMasterToDelete(null);
         setDeleteConfirmText('');
+        toastSuccess('Master unit deleted successfully.', 'Hardware Updated');
         onUpdate();
       } else {
-        alert('Failed to delete master unit');
+        const err = await res.json().catch(() => ({}));
+        toastError(err.error || 'Failed to delete master unit', 'Delete Failed');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      toastError(e.message || 'Network error while deleting master unit.', 'Network Error');
     }
   };
 
@@ -693,12 +710,15 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
         headers: authHeaders()
       });
       if (res.ok) {
+        toastSuccess('Slave device removed successfully.', 'Hardware Updated');
         onUpdate();
       } else {
-        alert('Failed to delete slave device');
+        const err = await res.json().catch(() => ({}));
+        toastError(err.error || 'Failed to delete slave device', 'Delete Failed');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      toastError(e.message || 'Network error while deleting slave device.', 'Network Error');
     }
   };
 
@@ -887,6 +907,7 @@ function GateDetailView({ gate, onBack, onUpdate }: any) {
 }
 
 function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [masterSequence, setMasterSequence] = useState('1');
   const [powerSource, setPowerSource] = useState('SOLAR');
   const [submitting, setSubmitting] = useState(false);
@@ -914,14 +935,16 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
         },
         body: JSON.stringify({ masterSequence: parseInt(masterSequence, 10), powerSource })
       });
-      if (res.ok) onSuccess();
-      else {
-        const err = await res.json();
-        alert(err.error || 'Failed');
+      if (res.ok) {
+        toastSuccess(`Master Unit ${gate.lcNumber}-${masterSequence.padStart(2, '0')} added successfully.`, 'Master Unit Added');
+        onSuccess();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toastError(err.error || 'Failed to add master unit', 'Hardware Error');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Error');
+      toastError(e.message || 'Network error while creating master unit.', 'Network Error');
     }
     setSubmitting(false);
   };
@@ -963,6 +986,7 @@ function CreateMasterForm({ gate, onCancel, onSuccess }: any) {
 }
 
 function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [type, setType] = useState('DEVICE_1');
   const [deviceSequence, setDeviceSequence] = useState('1');
   const [loadingSequence, setLoadingSequence] = useState(true);
@@ -1000,14 +1024,16 @@ function CreateDeviceForm({ master, onCancel, onSuccess }: any) {
         },
         body: JSON.stringify({ type, deviceSequence: parseInt(deviceSequence, 10) })
       });
-      if (res.ok) onSuccess();
-      else {
-        const err = await res.json();
-        alert(err.error || 'Failed');
+      if (res.ok) {
+        toastSuccess(`Slave device ${type} added successfully.`, 'Device Added');
+        onSuccess();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toastError(err.error || 'Failed to add slave device', 'Hardware Error');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      alert('Error');
+      toastError(e.message || 'Network error while creating slave device.', 'Network Error');
     }
     setSubmitting(false);
   };
@@ -1124,6 +1150,7 @@ function CentralizedEvidenceUpload({ master, onClose }: any) {
 }
 
 function EvidenceItem({ title, description, evidence, masterId, childDeviceId, category, onUploaded, onDeleted }: any) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -1132,7 +1159,7 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
     if (!file) return;
 
     if (!('geolocation' in navigator)) {
-      alert('❌ Geolocation is not supported by your browser.\nDevice location is strictly required to upload evidence proof.');
+      toastWarning('Device location is strictly required to upload evidence proof.', 'GPS Required');
       e.target.value = '';
       return;
     }
@@ -1168,14 +1195,15 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
 
             if (res.ok) {
               const saved = await res.json();
+              toastSuccess(`Evidence photo for "${title}" uploaded successfully.`, 'Evidence Uploaded');
               onUploaded(saved);
             } else {
               const err = await res.json().catch(() => ({}));
-              alert(err.message || err.error || 'Upload failed');
+              toastError(err.message || err.error || 'Upload failed', 'Upload Failed');
             }
           } catch (err: any) {
             console.error(err);
-            alert('Upload failed: ' + (err.message || 'Network error'));
+            toastError('Upload failed: ' + (err.message || 'Network error'), 'Network Error');
           } finally {
             setUploading(false);
             if (e.target) e.target.value = '';
@@ -1188,13 +1216,13 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
         if (e.target) e.target.value = '';
 
         if (err.code === 1) { // PERMISSION_DENIED
-          alert('⚠️ Location Access Denied!\n\nGPS location is strictly required to verify installation proof.\nPlease allow location access in your browser settings (click the lock/site settings icon near the address bar) and try again.');
+          toastError('GPS location is strictly required to verify installation proof. Please allow location access in your browser settings.', 'Location Access Denied');
         } else if (err.code === 2) { // POSITION_UNAVAILABLE
-          alert('⚠️ Device Location is Turned OFF!\n\nPlease turn ON your device location / GPS in system settings before uploading evidence.');
+          toastWarning('Please turn ON your device location / GPS in system settings before uploading evidence.', 'Location Turned Off');
         } else if (err.code === 3) { // TIMEOUT
-          alert('⚠️ Location Request Timed Out!\n\nCould not acquire GPS coordinates in time. Please check your GPS signal, ensure location is turned ON, and try again.');
+          toastWarning('Could not acquire GPS coordinates in time. Please check your GPS signal and try again.', 'GPS Timed Out');
         } else {
-          alert(`⚠️ Location Error: ${err.message || 'Unable to get location'}.\nLocation is strictly required to upload evidence proof.`);
+          toastError(`Location Error: ${err.message || 'Unable to get location'}`, 'Location Error');
         }
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
@@ -1210,11 +1238,15 @@ function EvidenceItem({ title, description, evidence, masterId, childDeviceId, c
         method: 'DELETE',
         headers: authHeaders()
       });
-      if (res.ok) onDeleted(evidence.id);
-      else alert('Failed to delete evidence');
+      if (res.ok) {
+        toastSuccess(`Evidence photo for "${title}" deleted successfully.`, 'Evidence Removed');
+        onDeleted(evidence.id);
+      } else {
+        toastError('Failed to delete evidence photo from server.', 'Delete Failed');
+      }
     } catch (err) {
       console.error(err);
-      alert('Delete failed');
+      toastError('Network error while deleting evidence.', 'Network Error');
     } finally {
       setDeleting(false);
     }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import FormRenderer from '../components/FormBuilder/FormRenderer';
 import { API_URL } from '../config';
 import { FaExclamationTriangle } from 'react-icons/fa';
+import { useToast } from '../context/ToastContext';
 
 type Props = {
   onGoToLogin: () => void;
@@ -19,6 +20,7 @@ const DEFAULT_FALLBACK_SCHEMA = {
 };
 
 export default function Register({ onGoToLogin }: Props) {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [schema, setSchema] = useState<any>(null);
   const [roles, setRoles] = useState<any[]>([]);
   const [error, setError] = useState('');
@@ -113,13 +115,17 @@ export default function Register({ onGoToLogin }: Props) {
 
       if (res.ok) {
         setSuccess(true);
+        toastSuccess('Registration submitted successfully! Your account request is pending administrator verification.', 'Request Submitted');
       } else {
-        const errorText = data.error || 'Registration failed';
-        setError(errorText);
+        const errMsg = data.error || 'Registration failed. Please check your submission.';
+        setError(errMsg);
+        toastError(errMsg, 'Registration Rejected');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     } catch (err) {
-      setError('Network error. Please verify your connection.');
+      const netMsg = 'Network error submitting registration. Please check connection and retry.';
+      setError(netMsg);
+      toastError(netMsg, 'Network Error');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setIsLoading(false);

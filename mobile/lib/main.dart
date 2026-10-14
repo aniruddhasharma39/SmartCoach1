@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'config.dart';
 import 'screens/login_screen.dart';
 import 'screens/dashboard_screen.dart';
+import 'utils/app_feedback.dart';
 
 void main() {
   runApp(const MyApp());
@@ -112,6 +113,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
               isAuthenticated = false;
               user = null;
             });
+            AppFeedback.showWarning(context, 'Your session has expired. Please log in again.');
           }
         } else {
           // Temporary server error, keep cached session
@@ -148,10 +150,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove('token');
         await prefs.remove('user');
+        if (!mounted) return;
         setState(() {
           isAuthenticated = false;
           user = null;
         });
+        AppFeedback.showInfo(this.context, 'You have been logged out successfully.');
       });
     }
 
@@ -161,10 +165,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('token', t);
         await prefs.setString('user', json.encode(u));
+        if (!mounted) return;
         setState(() {
           isAuthenticated = true;
           user = u;
         });
+        final name = u['fullName'] ?? u['name'] ?? 'User';
+        AppFeedback.showSuccess(this.context, 'Welcome back, $name!');
       },
     );
   }

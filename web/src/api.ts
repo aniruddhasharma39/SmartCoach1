@@ -1,4 +1,5 @@
 import { API_URL } from './config';
+import { toast } from './context/ToastContext';
 
 export const getAuthToken = (): string | null => {
   return localStorage.getItem('token');
@@ -21,6 +22,7 @@ export const triggerSessionExpired = (message: string = 'Your session has expire
   localStorage.removeItem('token');
   localStorage.removeItem('user');
   window.dispatchEvent(new CustomEvent('auth:expired', { detail: { message } }));
+  toast.warning(message, 'Session Expired');
 };
 
 // Global fetch interceptor to catch any 401s from the backend across all modules

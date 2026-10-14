@@ -28,6 +28,7 @@ import {
 import type { User, ScopeGroupItem } from '../../types';
 import { API_URL } from '../../config';
 import { RAILWAY_ZONES, RAILWAY_DATA } from '../Cluster/railwayData';
+import { useToast } from '../../context/ToastContext';
 import './ScopeGroupManagement.css';
 
 type Props = {
@@ -51,6 +52,7 @@ const authHeaders = () => ({
 });
 
 export default function ScopeGroupManagement({ user }: Props) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
   // If user is assigned to any scope group, or is not a developer, they are restricted to read-only scope view
   const isAssigned = Boolean(user.scopeGroups && user.scopeGroups.length > 0);
   const canManage = user.role === 'Developer' && !isAssigned;
@@ -171,9 +173,55 @@ export default function ScopeGroupManagement({ user }: Props) {
     loadInitialData();
   }, []);
 
-  // Root Scope Groups (top-level groups with no parent in the user's accessible list)
+  // Check if a group represents a Railway Zone
+  const isRailwayZone = (name: string) => {
+    const lower = name.toLowerCase();
+    return lower.includes('railway') || zones.some(z => lower.includes(z.toLowerCase().replace(/s$/, '')));
+  };
+
+  // Helper to determine if a group is a child Division/Subgroup under a Zone
+  const isDivisionOrSubGroup = (group: ScopeGroupItem) => {
+    if (group.parentId && scopeGroups.some(p => p.id === group.parentId)) {
+      return true;
+    }
+    const gName = group.name.toLowerCase();
+    for (const potentialParent of scopeGroups) {
+      if (potentialParent.id === group.id) continue;
+      if (isRailwayZone(potentialParent.name)) {
+        const zoneDivs = divisionsByZone[potentialParent.name] || [];
+        const matchesDiv = zoneDivs.some(d => gName.includes(d.toLowerCase())) ||
+          gName.includes('division') ||
+          gName.includes('section');
+        if (matchesDiv) return true;
+      }
+    }
+    return false;
+  };
+
+  // Helper to resolve effective parent for a group
+  const resolveParent = (group: ScopeGroupItem | null): ScopeGroupItem | undefined => {
+    if (!group) return undefined;
+    if (group.parent) return group.parent as ScopeGroupItem;
+    if (group.parentId) {
+      const p = scopeGroups.find(g => g.id === group.parentId);
+      if (p) return p;
+    }
+    const gName = group.name.toLowerCase();
+    for (const zoneGroup of scopeGroups) {
+      if (zoneGroup.id === group.id) continue;
+      if (isRailwayZone(zoneGroup.name)) {
+        const zoneDivs = divisionsByZone[zoneGroup.name] || [];
+        if (zoneDivs.some(d => gName.includes(d.toLowerCase())) || gName.includes('division')) {
+          return zoneGroup;
+        }
+      }
+    }
+    return undefined;
+  };
+
+  // Root Scope Groups (top-level Railway Zones only; divisions will NEVER appear at same time)
   const rootGroups = useMemo(() => {
-    return scopeGroups.filter(g => !g.parentId || !scopeGroups.some(p => p.id === g.parentId));
+    return scopeGroups.filter(g => !isDivisionOrSubGroup(g));
   }, [scopeGroups]);
 
   // Displayed Scope Groups for List View
@@ -182,16 +230,34 @@ export default function ScopeGroupManagement({ user }: Props) {
   const displayedGroups = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return rootGroups;
-    return scopeGroups.filter(g =>
-      g.name.toLowerCase().includes(q) ||
-      (g.description && g.description.toLowerCase().includes(q)) ||
-      (g.parent && g.parent.name.toLowerCase().includes(q))
-    );
+    return scopeGroups.filter(g => {
+      const parentObj = resolveParent(g);
+      return g.name.toLowerCase().includes(q) ||
+        (g.description && g.description.toLowerCase().includes(q)) ||
+        (parentObj && parentObj.name.toLowerCase().includes(q));
+    });
   }, [scopeGroups, rootGroups, searchQuery]);
 
   // Helper to get direct children of any group from loaded scopeGroups
   const getDirectChildren = (parentId: number) => {
-    return scopeGroups.filter(g => g.parentId === parentId);
+    const parent = scopeGroups.find(g => g.id === parentId);
+    if (!parent) return [];
+    const isParentZone = isRailwayZone(parent.name);
+    const zoneDivs = divisionsByZone[parent.name] || [];
+
+    return scopeGroups.filter(g => {
+      if (g.id === parentId) return false;
+      if (g.parentId === parentId) return true;
+      if (!g.parentId && isParentZone) {
+        const gName = g.name.toLowerCase();
+        if (zoneDivs.some(d => gName.includes(d.toLowerCase()))) return true;
+        if (gName.includes('division')) {
+          const otherZones = scopeGroups.filter(z => z.id !== parentId && isRailwayZone(z.name));
+          if (otherZones.length === 0) return true;
+        }
+      }
+      return false;
+    });
   };
 
   // Helper to get recursive gates across a group and all its descendant groups
@@ -200,7 +266,7 @@ export default function ScopeGroupManagement({ user }: Props) {
     let queue = [groupId];
     while (queue.length > 0) {
       const curr = queue.shift()!;
-      const children = scopeGroups.filter(g => g.parentId === curr);
+      const children = getDirectChildren(curr);
       children.forEach(c => {
         if (!descendantIds.has(c.id)) {
           descendantIds.add(c.id);
@@ -230,8 +296,9 @@ export default function ScopeGroupManagement({ user }: Props) {
     while (curr && !visited.has(curr.id)) {
       visited.add(curr.id);
       crumbs.unshift(curr);
-      if (curr.parentId) {
-        curr = scopeGroups.find(g => g.id === curr!.parentId);
+      const parent = resolveParent(curr);
+      if (parent && parent.id !== curr.id) {
+        curr = parent;
       } else {
         curr = undefined;
       }
@@ -417,6 +484,7 @@ export default function ScopeGroupManagement({ user }: Props) {
       pickerFilteredGates.forEach(g => next.add(g.id));
       return next;
     });
+    toastInfo(`Selected all ${pickerFilteredGates.length} filtered gates.`, 'Gates Selected');
   };
 
   const deselectAllFilteredGates = () => {
@@ -425,6 +493,7 @@ export default function ScopeGroupManagement({ user }: Props) {
       pickerFilteredGates.forEach(g => next.delete(g.id));
       return next;
     });
+    toastInfo(`Deselected ${pickerFilteredGates.length} filtered gates.`, 'Gates Deselected');
   };
 
   // Filtered Users in Picker
@@ -468,6 +537,7 @@ export default function ScopeGroupManagement({ user }: Props) {
     if (!canManage) return;
     if (!formName.trim()) {
       setFormError('Please enter a Scope Group name');
+      toastWarning('Please enter a Scope Group name.', 'Validation');
       setModalTab('details');
       return;
     }
@@ -475,8 +545,10 @@ export default function ScopeGroupManagement({ user }: Props) {
     setSubmitting(true);
     setFormError(null);
 
+    const isEditing = Boolean(editingGroupId);
+    const trimmedName = formName.trim();
     const payload = {
-      name: formName.trim(),
+      name: trimmedName,
       description: formDesc.trim() || null,
       color: formColor,
       parentId: formParentId,
@@ -498,14 +570,21 @@ export default function ScopeGroupManagement({ user }: Props) {
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to save scope group');
       }
 
       setIsModalOpen(false);
       await fetchScopeGroups();
+      if (isEditing) {
+        toastSuccess(`Scope Group "${trimmedName}" updated successfully.`, 'Group Updated');
+      } else {
+        toastSuccess(`Scope Group "${trimmedName}" created with ${selectedGateIds.size} gates and ${selectedUserIds.size} users.`, 'Group Created');
+      }
     } catch (err: any) {
-      setFormError(err.message || 'Error occurred while saving');
+      const msg = err.message || 'Error occurred while saving scope group';
+      setFormError(msg);
+      toastError(msg, 'Save Error');
     } finally {
       setSubmitting(false);
     }
@@ -514,6 +593,7 @@ export default function ScopeGroupManagement({ user }: Props) {
   // Delete Scope Group
   const handleDeleteGroup = async () => {
     if (!deleteConfirmGroup) return;
+    const groupName = deleteConfirmGroup.name;
     try {
       const res = await fetch(`${API_URL}/api/v1/scope-groups/${deleteConfirmGroup.id}`, {
         method: 'DELETE',
@@ -522,13 +602,14 @@ export default function ScopeGroupManagement({ user }: Props) {
       if (res.ok) {
         setDeleteConfirmGroup(null);
         await fetchScopeGroups();
+        toastSuccess(`Scope Group "${groupName}" deleted successfully.`, 'Group Deleted');
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to delete scope group');
+        const data = await res.json().catch(() => ({}));
+        toastError(data.error || 'Failed to delete scope group', 'Delete Failed');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Error deleting scope group');
+      toastError(err.message || 'Network error while deleting scope group.', 'Delete Error');
     }
   };
 
@@ -607,7 +688,10 @@ export default function ScopeGroupManagement({ user }: Props) {
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchQuery('');
+                    toastInfo('Scope group search filter cleared.', 'Search Reset');
+                  }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
                   <FaTimes />
@@ -615,7 +699,14 @@ export default function ScopeGroupManagement({ user }: Props) {
               )}
             </div>
 
-            <button className="btn btn-secondary" onClick={loadInitialData} title="Refresh data">
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                await loadInitialData();
+                toastInfo('Scope groups catalog and assignments updated.', 'Refreshed');
+              }}
+              title="Refresh data"
+            >
               <FaSyncAlt /> Refresh
             </button>
           </div>
@@ -674,19 +765,22 @@ export default function ScopeGroupManagement({ user }: Props) {
 
                     <div className="sg-card-top">
                       <div>
-                        {group.parent ? (
-                          <div style={{ marginBottom: 4 }}>
-                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', padding: '2px 8px', borderRadius: 4 }}>
-                              <FaFolder size={11} color="#64748b" /> {group.parent.name} /
-                            </span>
-                          </div>
-                        ) : (
-                          <div style={{ marginBottom: 4 }}>
-                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0369a1', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#e0f2fe', padding: '2px 8px', borderRadius: 4 }}>
-                              <FaFolderOpen size={11} color="#0369a1" /> Main Scope Group
-                            </span>
-                          </div>
-                        )}
+                        {(() => {
+                          const p = resolveParent(group);
+                          return p ? (
+                            <div style={{ marginBottom: 4 }}>
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', padding: '2px 8px', borderRadius: 4 }}>
+                                <FaFolder size={11} color="#64748b" /> {p.name} /
+                              </span>
+                            </div>
+                          ) : (
+                            <div style={{ marginBottom: 4 }}>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0369a1', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#e0f2fe', padding: '2px 8px', borderRadius: 4 }}>
+                                <FaFolderOpen size={11} color="#0369a1" /> Railway Zone (Main Scope)
+                              </span>
+                            </div>
+                          );
+                        })()}
                         <h3 className="sg-card-title">{group.name}</h3>
                       </div>
                     </div>
@@ -1021,10 +1115,10 @@ export default function ScopeGroupManagement({ user }: Props) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span className="sg-color-dot" style={{ backgroundColor: activeGroup.color || '#0B3C7A' }} />
                   <div>
-                    {activeGroup.parent && (
+                    {resolveParent(activeGroup) && (
                       <div style={{ marginBottom: 4 }}>
                         <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', padding: '2px 8px', borderRadius: 4 }}>
-                          <FaFolder size={11} color="#64748b" /> {activeGroup.parent.name} /
+                          <FaFolder size={11} color="#64748b" /> {resolveParent(activeGroup)?.name} /
                         </span>
                       </div>
                     )}

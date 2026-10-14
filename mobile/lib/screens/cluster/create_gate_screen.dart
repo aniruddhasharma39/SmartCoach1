@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import '../../config.dart';
+import '../../utils/app_feedback.dart';
 import 'railway_data.dart';
 
 class CreateGateScreen extends StatefulWidget {
@@ -47,7 +48,7 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
         if (data is Map) {
           final zones = (data['zones'] as List?)?.whereType<String>().toList() ?? [];
           final divisionsRaw = data['divisionsByZone'];
-          if (zones.isNotEmpty) {
+          if (zones.isNotEmpty && mounted) {
             setState(() {
               _zones = zones;
               if (divisionsRaw is Map) {
@@ -60,7 +61,9 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
         }
       }
     } catch (e) {
-      print('Error fetching zone/division reference data: $e');
+      if (mounted) {
+        AppFeedback.showError(context, 'Unable to load railway zones reference: $e');
+      }
     } finally {
       if (mounted) setState(() => _loadingReference = false);
     }
@@ -83,32 +86,40 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
       } 
 
       Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      setState(() {
-        _latCtrl.text = position.latitude.toString();
-        _lngCtrl.text = position.longitude.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _latCtrl.text = position.latitude.toString();
+          _lngCtrl.text = position.longitude.toString();
+        });
+        AppFeedback.showSuccess(
+          context,
+          'GPS location acquired: ${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}',
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      if (mounted) {
+        AppFeedback.showError(context, e.toString().replaceAll('Exception: ', ''));
+      }
     } finally {
-      setState(() => _isFetchingLocation = false);
+      if (mounted) setState(() => _isFetchingLocation = false);
     }
   }
 
   Future<void> _submit() async {
-    if (_locationNameCtrl.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Location Name is required')));
+    if (_locationNameCtrl.text.trim().isEmpty) {
+      AppFeedback.showWarning(context, 'Location Name is required.');
       return;
     }
     if (_zone == null || _zone!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a Railway Zone')));
+      AppFeedback.showWarning(context, 'Please select a Railway Zone.');
       return;
     }
     if (_division == null || _division!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a Division')));
+      AppFeedback.showWarning(context, 'Please select a Division.');
       return;
     }
     if (_lcNumberCtrl.text.trim().length != 4) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('LC Number must be exactly 4 digits')));
+      AppFeedback.showWarning(context, 'LC Number must be exactly 4 digits (e.g. 0042).');
       return;
     }
 
@@ -117,9 +128,9 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
       final lat = double.tryParse(_latCtrl.text);
       final lng = double.tryParse(_lngCtrl.text);
       final body = <String, dynamic>{
-        'locationName': _locationNameCtrl.text,
-        'name': _nameCtrl.text.isNotEmpty ? _nameCtrl.text : null,
-        'lcNumberDigits': _lcNumberCtrl.text,
+        'locationName': _locationNameCtrl.text.trim(),
+        'name': _nameCtrl.text.trim().isNotEmpty ? _nameCtrl.text.trim() : null,
+        'lcNumberDigits': _lcNumberCtrl.text.trim(),
         'zone': _zone,
         'division': _division,
       };
@@ -136,14 +147,29 @@ class _CreateGateScreenState extends State<CreateGateScreen> {
       );
 
       if (res.statusCode == 201) {
-        Navigator.pop(context, true);
+        if (mounted) Navigator.pop(context, true);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to create gate: ${res.body}')));
+        String errMsg = 'Failed to create LC Gate.';
+        try {
+          final err = json.decode(res.body);
+          if (err['error'] != null) {
+            errMsg = err['error'];
+          } else if (err['message'] != null) {
+            errMsg = err['message'];
+          }
+        } catch (_) {
+          errMsg = 'Server returned HTTP ${res.statusCode}';
+        }
+        if (mounted) {
+          AppFeedback.showError(context, errMsg);
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        AppFeedback.showError(context, 'Network error creating LC Gate: $e');
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 

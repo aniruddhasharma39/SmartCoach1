@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../../config.dart';
 import '../../main.dart';
+import '../../utils/app_feedback.dart';
 
 class CreateMasterScreen extends StatefulWidget {
   final String token;
@@ -33,7 +34,7 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchSequence() async {
+  Future<void> _fetchSequence({bool isManualRetry = false}) async {
     setState(() {
       _isFetchingSequence = true;
       _seqError = null;
@@ -54,6 +55,12 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
               _seqCtrl.text = data['nextSequence'].toString().padLeft(2, '0');
               _isFetchingSequence = false;
             });
+            if (isManualRetry) {
+              AppFeedback.showSuccess(
+                context,
+                'Master sequence synchronized: Sequence #${data['nextSequence']}',
+              );
+            }
           }
           return;
         }
@@ -66,12 +73,21 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
           _isFetchingSequence = false;
           _seqError = 'Could not load next sequence. Tap to retry.';
         });
+        if (isManualRetry) {
+          AppFeedback.showError(
+            context,
+            'Unable to synchronize next master sequence. Please retry.',
+          );
+        }
       }
     }
   }
 
   Future<void> _submit() async {
-    if (_seqCtrl.text.isEmpty || _isFetchingSequence) return;
+    if (_seqCtrl.text.isEmpty || _isFetchingSequence) {
+      AppFeedback.showWarning(context, 'Master sequence is not ready yet. Please wait or retry.');
+      return;
+    }
     setState(() => _isLoading = true);
 
     try {
@@ -88,17 +104,21 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
       );
 
       if (res.statusCode == 201) {
-        Navigator.pop(context, true);
+        if (mounted) Navigator.pop(context, true);
       } else {
         String errMsg = 'Failed to create master unit';
         try {
           final body = json.decode(res.body);
           if (body['error'] != null) errMsg = body['error'];
         } catch (_) {}
-        throw Exception(errMsg);
+        if (mounted) {
+          AppFeedback.showError(context, errMsg);
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        AppFeedback.showError(context, 'Network error creating master unit: $e');
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -160,7 +180,7 @@ class _CreateMasterScreenState extends State<CreateMasterScreen> {
                               ? IconButton(
                                   icon: const Icon(Icons.refresh, color: AppColors.primary),
                                   tooltip: 'Retry',
-                                  onPressed: _fetchSequence,
+                                  onPressed: () => _fetchSequence(isManualRetry: true),
                                 )
                               : null),
                     ),

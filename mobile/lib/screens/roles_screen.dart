@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import '../config.dart';
 import '../main.dart';
+import '../utils/app_feedback.dart';
 
 class RolesScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -36,18 +37,24 @@ class _RolesScreenState extends State<RolesScreen> {
       var resRoles = await http.get(Uri.parse('$baseUrl/roles'), headers: {'Authorization': 'Bearer $token'});
       var resMods = await http.get(Uri.parse('$baseUrl/modules'), headers: {'Authorization': 'Bearer $token'});
       
-      setState(() {
-        _roles = json.decode(resRoles.body);
-        _modules = json.decode(resMods.body);
-      });
+      if (mounted) {
+        setState(() {
+          _roles = json.decode(resRoles.body);
+          _modules = json.decode(resMods.body);
+        });
+      }
     } catch (e) {
-      print(e);
+      if (mounted) {
+        AppFeedback.showError(context, 'Failed to load roles and permissions: $e');
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  Future<void> _deleteRole(int id) async {
+  Future<void> _deleteRole(int id, String roleName) async {
     final token = await _getToken();
     try {
       final res = await http.delete(
@@ -56,12 +63,19 @@ class _RolesScreenState extends State<RolesScreen> {
       );
       if (res.statusCode == 200) {
         _fetchData();
+        if (mounted) {
+          AppFeedback.showSuccess(context, 'Role "$roleName" has been deleted successfully.');
+        }
       } else {
         final err = json.decode(res.body);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err['error'])));
+        if (mounted) {
+          AppFeedback.showError(context, err['error'] ?? 'Failed to delete role.');
+        }
       }
     } catch (e) {
-      print(e);
+      if (mounted) {
+        AppFeedback.showError(context, 'Network error deleting role: $e');
+      }
     }
   }
 
@@ -75,9 +89,9 @@ class _RolesScreenState extends State<RolesScreen> {
 
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogCtx) {
         return StatefulBuilder(
-          builder: (context, setDialogState) {
+          builder: (stfCtx, setDialogState) {
             return AlertDialog(
               title: Text(role == null ? 'Create Role' : 'Edit Role'),
               content: SizedBox(
@@ -121,11 +135,16 @@ class _RolesScreenState extends State<RolesScreen> {
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
                 ElevatedButton(
                   onPressed: isSaving ? null : () async {
+                    final trimmedName = name.trim();
+                    if (trimmedName.isEmpty) {
+                      AppFeedback.showWarning(context, 'Role name cannot be empty.');
+                      return;
+                    }
+
                     setDialogState(() => isSaving = true);
-                    final messenger = ScaffoldMessenger.of(context);
                     final token = await _getToken();
                     final url = role == null 
                       ? '$baseUrl/roles' 
@@ -136,30 +155,40 @@ class _RolesScreenState extends State<RolesScreen> {
                       final res = await method(
                         Uri.parse(url),
                         headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
-                        body: json.encode({'name': name, 'moduleIds': selectedModuleIds})
+                        body: json.encode({'name': trimmedName, 'moduleIds': selectedModuleIds})
                       );
                       
                       if (res.statusCode == 200 || res.statusCode == 201) {
-                        if (context.mounted) Navigator.pop(context);
-                        messenger.showSnackBar(const SnackBar(
-                          content: Text('Role successfully saved!', style: TextStyle(color: Colors.white)), 
-                          backgroundColor: Colors.green
-                        ));
+                        if (dialogCtx.mounted) Navigator.pop(dialogCtx);
                         _fetchData();
+                        if (!mounted) return;
+                        if (role == null) {
+                          AppFeedback.showSuccess(
+                            context,
+                            'Role "$trimmedName" created successfully with ${selectedModuleIds.length} module access!',
+                          );
+                        } else {
+                          AppFeedback.showSuccess(
+                            context,
+                            'Role "$trimmedName" updated successfully.',
+                          );
+                        }
                       } else {
                         final err = json.decode(res.body);
-                        messenger.showSnackBar(SnackBar(
-                          content: Text(err['error'] ?? 'Unknown error'),
-                          backgroundColor: Colors.red
-                        ));
+                        if (!mounted) return;
+                        AppFeedback.showError(
+                          context,
+                          err['error'] ?? 'Failed to save role.',
+                        );
                       }
                     } catch (e) {
-                      messenger.showSnackBar(const SnackBar(
-                        content: Text('Network error. Please try again.'),
-                        backgroundColor: Colors.red
-                      ));
+                      if (!mounted) return;
+                      AppFeedback.showError(
+                        context,
+                        'Network error while saving role: $e',
+                      );
                     } finally {
-                      if (context.mounted) setDialogState(() => isSaving = false);
+                      if (dialogCtx.mounted) setDialogState(() => isSaving = false);
                     }
                   }, 
                   child: isSaving 
@@ -219,9 +248,40 @@ class _RolesScreenState extends State<RolesScreen> {
                             OutlinedButton(onPressed: () => _showRoleDialog(role: r), child: const Text('Edit')),
                             const SizedBox(width: 8),
                             OutlinedButton(
-                              style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger, side: const BorderSide(color: AppColors.danger)),
-                              onPressed: () => _deleteRole(r['id']), 
-                              child: const Text('Delete')
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.danger,
+                                side: const BorderSide(color: AppColors.danger),
+                              ),
+                              onPressed: () async {
+                                final roleName = (r['name'] ?? 'Role').toString();
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: Text('Delete Role "$roleName"?'),
+                                    content: const Text(
+                                      'Are you sure you want to delete this role? Any users currently assigned to this role will lose their assigned module access.',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppColors.danger,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        child: const Text('Delete Role'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  _deleteRole(r['id'], roleName);
+                                }
+                              }, 
+                              child: const Text('Delete'),
                             ),
                           ],
                         )

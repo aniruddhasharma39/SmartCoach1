@@ -4,11 +4,13 @@ import Register from './screens/Register';
 import Dashboard from './screens/Dashboard';
 import type { User } from './types';
 import { API_URL } from './config';
+import { useToast } from './context/ToastContext';
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState<'login' | 'register' | 'dashboard'>('login');
   const [user, setUser] = useState<User | null>(null);
   const [sessionExpiredMsg, setSessionExpiredMsg] = useState<string | null>(null);
+  const { success, info } = useToast();
 
   useEffect(() => {
     const onAuthExpired = (e: any) => {
@@ -63,6 +65,8 @@ function App() {
     setSessionExpiredMsg(null);
     setUser(loggedInUser);
     setCurrentScreen('dashboard');
+    const roleName = typeof loggedInUser.role === 'object' ? (loggedInUser.role as any)?.name : loggedInUser.role;
+    success(`Welcome back, ${loggedInUser.fullName || 'User'}! Logged in as ${roleName || 'Member'}.`, 'Login Successful');
   };
 
   const handleLogout = () => {
@@ -71,6 +75,7 @@ function App() {
     setSessionExpiredMsg(null);
     setUser(null);
     setCurrentScreen('login');
+    info('You have been logged out of your account.', 'Signed Out');
   };
 
   return (
