@@ -125,18 +125,22 @@ router.get('/', async (req: AuthRequest, res, next) => {
         gates: {
           include: {
             gate: {
-              select: {
-                id: true,
-                name: true,
-                lcNumber: true,
-                locationName: true,
-                zone: true,
-                division: true
+              include: {
+                masters: {
+                  orderBy: { masterSequence: 'asc' },
+                  include: {
+                    childDevices: {
+                      orderBy: { deviceSequence: 'asc' },
+                      include: { evidences: true }
+                    },
+                    evidences: true
+                  }
+                }
               }
             }
           }
         },
-        users: {
+        users: hasAssignedScopes ? false : {
           include: {
             user: {
               select: {
@@ -182,10 +186,23 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
       include: {
         gates: {
           include: {
-            gate: true
+            gate: {
+              include: {
+                masters: {
+                  orderBy: { masterSequence: 'asc' },
+                  include: {
+                    childDevices: {
+                      orderBy: { deviceSequence: 'asc' },
+                      include: { evidences: true }
+                    },
+                    evidences: true
+                  }
+                }
+              }
+            }
           }
         },
-        users: {
+        users: hasAssignedScopes ? false : {
           include: {
             user: {
               select: {

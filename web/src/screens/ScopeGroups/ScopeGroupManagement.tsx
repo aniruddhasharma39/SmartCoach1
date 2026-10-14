@@ -9,10 +9,17 @@ import {
   FaTimes,
   FaSyncAlt,
   FaMicrochip,
-  FaInfoCircle,
   FaTag,
   FaCheckDouble,
-  FaLock
+  FaLock,
+  FaArrowLeft,
+  FaChevronRight,
+  FaSun,
+  FaBolt,
+  FaPlug,
+  FaTrain,
+  FaCogs,
+  FaMapMarkerAlt
 } from 'react-icons/fa';
 import type { User, ScopeGroupItem } from '../../types';
 import { API_URL } from '../../config';
@@ -50,6 +57,13 @@ export default function ScopeGroupManagement({ user }: Props) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // View Navigation: 'list' | 'group_detail' | 'gate_detail'
+  const [viewMode, setViewMode] = useState<'list' | 'group_detail' | 'gate_detail'>('list');
+  const [activeGroup, setActiveGroup] = useState<ScopeGroupItem | null>(null);
+  const [activeGate, setActiveGate] = useState<any | null>(null);
+  const [activeGateSearch, setActiveGateSearch] = useState('');
+  const [activeGateLoading, setActiveGateLoading] = useState(false);
+
   // Zone/Division reference
   const zones = RAILWAY_ZONES;
   const divisionsByZone = RAILWAY_DATA;
@@ -76,9 +90,6 @@ export default function ScopeGroupManagement({ user }: Props) {
   // User Picker Filters
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userRoleFilter, setUserRoleFilter] = useState('ALL');
-
-  // Detail View Modal State
-  const [viewingGroup, setViewingGroup] = useState<ScopeGroupItem | null>(null);
 
   // Delete Confirmation Modal
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ScopeGroupItem | null>(null);
@@ -164,6 +175,69 @@ export default function ScopeGroupManagement({ user }: Props) {
       (g.description && g.description.toLowerCase().includes(q))
     );
   }, [scopeGroups, searchQuery]);
+
+  // Open Group Detail Page
+  const handleCardClick = (group: ScopeGroupItem) => {
+    setActiveGroup(group);
+    setActiveGate(null);
+    setActiveGateSearch('');
+    setViewMode('group_detail');
+  };
+
+  // Open Gate Detail Page
+  const handleGateClick = async (gate: any) => {
+    setActiveGate(gate);
+    setViewMode('gate_detail');
+    setActiveGateLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/lcgate/${gate.id}`, { headers: authHeaders() });
+      if (res.ok) {
+        const fullGate = await res.json();
+        setActiveGate(fullGate);
+      }
+    } catch (err) {
+      console.error('Failed to fetch full gate telemetry:', err);
+    } finally {
+      setActiveGateLoading(false);
+    }
+  };
+
+  // Back to Group Detail
+  const handleBackToGroup = () => {
+    setActiveGate(null);
+    setViewMode('group_detail');
+  };
+
+  // Back to List
+  const handleBackToList = () => {
+    setActiveGroup(null);
+    setActiveGate(null);
+    setViewMode('list');
+  };
+
+  // Keep activeGroup synced if scopeGroups updates
+  useEffect(() => {
+    if (activeGroup) {
+      const found = scopeGroups.find(g => g.id === activeGroup.id);
+      if (found) setActiveGroup(found);
+    }
+  }, [scopeGroups]);
+
+  // Filtered Gates in Active Scope Group
+  const activeGroupGates = useMemo(() => {
+    if (!activeGroup?.gates) return [];
+    const q = activeGateSearch.toLowerCase().trim();
+    if (!q) return activeGroup.gates;
+    return activeGroup.gates.filter(item => {
+      const g = item.gate;
+      const matchName = (g.name || '').toLowerCase().includes(q);
+      const matchLc = (g.lcNumber || '').toLowerCase().includes(q);
+      const matchLoc = (g.locationName || '').toLowerCase().includes(q);
+      const matchZone = (g.zone || '').toLowerCase().includes(q);
+      const matchDiv = (g.division || '').toLowerCase().includes(q);
+      return matchName || matchLc || matchLoc || matchZone || matchDiv;
+    });
+  }, [activeGroup, activeGateSearch]);
 
   // Open Create Modal
   const handleOpenCreate = () => {
@@ -347,227 +421,539 @@ export default function ScopeGroupManagement({ user }: Props) {
 
   return (
     <div className="sg-container">
-      {/* Header */}
-      <div className="sg-header">
-        <div className="sg-header-titles">
-          <h2>
-            <FaLayerGroup /> {canManage ? 'Scope Groups Console' : 'My Assigned Scope Groups'}
-          </h2>
-          <p>
-            {canManage
-              ? 'Create granular access groups. Manually assign specific clusters & LC gates to designated team members.'
-              : 'View the scope groups and LC gates assigned to your account. Your operational access is restricted to these gates.'}
-          </p>
-        </div>
-        {canManage ? (
-          <button className="btn btn-primary" onClick={handleOpenCreate}>
-            <FaPlus /> Create Scope Group
-          </button>
-        ) : (
-          <div className="sg-readonly-badge">
-            <FaLock style={{ color: '#0B3C7A' }} /> Assigned Member • Read-Only
+      {/* 1. SCOPE GROUPS LIST VIEW */}
+      {viewMode === 'list' && (
+        <>
+          {/* Header */}
+          <div className="sg-header">
+            <div className="sg-header-titles">
+              <h2>
+                <FaLayerGroup /> {canManage ? 'Scope Groups Console' : 'My Assigned Scope Groups'}
+              </h2>
+              <p>
+                {canManage
+                  ? 'Create granular access groups. Manually assign specific clusters & LC gates to designated team members.'
+                  : 'View the scope groups and LC gates assigned to your account. Your operational access is restricted to these gates.'}
+              </p>
+            </div>
+            {canManage ? (
+              <button className="btn btn-primary" onClick={handleOpenCreate}>
+                <FaPlus /> Create Scope Group
+              </button>
+            ) : (
+              <div className="sg-readonly-badge">
+                <FaLock style={{ color: '#0B3C7A' }} /> Assigned Member • Read-Only
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Stats Cards */}
-      <div className="sg-stats-grid">
-        <div className="sg-stat-card">
-          <div className="sg-stat-icon primary">
-            <FaLayerGroup />
-          </div>
-          <div className="sg-stat-info">
-            <h3>{stats.totalGroups}</h3>
-            <span>Total Scope Groups</span>
-          </div>
-        </div>
+          {/* Stats Cards */}
+          <div className="sg-stats-grid">
+            <div className="sg-stat-card">
+              <div className="sg-stat-icon primary">
+                <FaLayerGroup />
+              </div>
+              <div className="sg-stat-info">
+                <h3>{stats.totalGroups}</h3>
+                <span>Total Scope Groups</span>
+              </div>
+            </div>
 
-        <div className="sg-stat-card">
-          <div className="sg-stat-icon teal">
-            <FaMicrochip />
-          </div>
-          <div className="sg-stat-info">
-            <h3>{stats.totalGates}</h3>
-            <span>Unique Scoped Gates</span>
-          </div>
-        </div>
+            <div className="sg-stat-card">
+              <div className="sg-stat-icon teal">
+                <FaMicrochip />
+              </div>
+              <div className="sg-stat-info">
+                <h3>{stats.totalGates}</h3>
+                <span>Unique Scoped Gates</span>
+              </div>
+            </div>
 
-        <div className="sg-stat-card">
-          <div className="sg-stat-icon amber">
-            <FaUsers />
-          </div>
-          <div className="sg-stat-info">
-            <h3>{stats.totalUsers}</h3>
-            <span>Assigned Users</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Toolbar */}
-      <div className="sg-toolbar">
-        <div className="sg-search-box">
-          <FaSearch color="#94a3b8" />
-          <input
-            type="text"
-            placeholder="Search scope groups by name or description..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
-            >
-              <FaTimes />
-            </button>
-          )}
-        </div>
-
-        <button className="btn btn-secondary" onClick={loadInitialData} title="Refresh data">
-          <FaSyncAlt /> Refresh
-        </button>
-      </div>
-
-      {/* Groups Grid */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--muted)' }}>
-          <FaSyncAlt className="spin" size={32} style={{ marginBottom: 12, color: 'var(--primary)' }} />
-          <div>Loading scope groups...</div>
-        </div>
-      ) : filteredGroups.length === 0 ? (
-        <div className="sg-empty-state">
-          <FaLayerGroup className="sg-empty-icon" />
-          <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>
-            {searchQuery
-              ? 'No scope groups match your search'
-              : canManage
-              ? 'No Scope Groups Created Yet'
-              : 'No Scope Groups Assigned'}
-          </h3>
-          <p style={{ margin: '0 0 18px 0', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto' }}>
-            {searchQuery
-              ? 'Try adjusting your search keywords.'
-              : canManage
-              ? 'Create your first Scope Group to manually bundle LC Gates and assign them to specific users.'
-              : 'No scope groups are currently assigned to your account. Please contact an administrator to get access.'}
-          </p>
-          {!searchQuery && canManage && (
-            <button className="btn btn-primary" onClick={handleOpenCreate}>
-              <FaPlus /> Create Your First Scope Group
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="sg-groups-grid">
-          {filteredGroups.map(group => {
-            const gateCount = group.gates?.length || group._count?.gates || 0;
-            const userCount = group.users?.length || group._count?.users || 0;
-            const previewGates = group.gates?.slice(0, 4) || [];
-            const remainingGates = gateCount - previewGates.length;
-            const previewUsers = group.users?.slice(0, 5) || [];
-
-            return (
-              <div key={group.id} className="sg-group-card">
-                <div
-                  className="sg-card-stripe"
-                  style={{ backgroundColor: group.color || '#0B3C7A' }}
-                />
-
-                <div className="sg-card-top">
-                  <div>
-                    <h3 className="sg-card-title">{group.name}</h3>
-                  </div>
+            {canManage && (
+              <div className="sg-stat-card">
+                <div className="sg-stat-icon amber">
+                  <FaUsers />
                 </div>
-
-                <p className="sg-card-desc">
-                  {group.description || 'No description provided.'}
-                </p>
-
-                <div className="sg-card-meta">
-                  <span className="sg-pill gates">
-                    <FaMicrochip /> {gateCount} {gateCount === 1 ? 'Gate' : 'Gates'}
-                  </span>
-                  <span className="sg-pill users">
-                    <FaUsers /> {userCount} {userCount === 1 ? 'User' : 'Users'}
-                  </span>
+                <div className="sg-stat-info">
+                  <h3>{stats.totalUsers}</h3>
+                  <span>Assigned Users</span>
                 </div>
+              </div>
+            )}
+          </div>
 
-                {/* Gate Preview */}
-                <div className="sg-gates-preview">
-                  <div className="sg-preview-label">Included Gates</div>
-                  {gateCount === 0 ? (
-                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No gates selected yet</span>
-                  ) : (
-                    <div className="sg-preview-chips">
-                      {previewGates.map(item => (
-                        <span key={item.gate.id} className="sg-gate-chip">
-                          {item.gate.lcNumber}
-                          {item.gate.locationName ? ` (${item.gate.locationName})` : ''}
+          {/* Toolbar */}
+          <div className="sg-toolbar">
+            <div className="sg-search-box">
+              <FaSearch color="#94a3b8" />
+              <input
+                type="text"
+                placeholder="Search scope groups by name or description..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                >
+                  <FaTimes />
+                </button>
+              )}
+            </div>
+
+            <button className="btn btn-secondary" onClick={loadInitialData} title="Refresh data">
+              <FaSyncAlt /> Refresh
+            </button>
+          </div>
+
+          {/* Groups Grid */}
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--muted)' }}>
+              <FaSyncAlt className="spin" size={32} style={{ marginBottom: 12, color: 'var(--primary)' }} />
+              <div>Loading scope groups...</div>
+            </div>
+          ) : filteredGroups.length === 0 ? (
+            <div className="sg-empty-state">
+              <FaLayerGroup className="sg-empty-icon" />
+              <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>
+                {searchQuery
+                  ? 'No scope groups match your search'
+                  : canManage
+                  ? 'No Scope Groups Created Yet'
+                  : 'No Scope Groups Assigned'}
+              </h3>
+              <p style={{ margin: '0 0 18px 0', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto' }}>
+                {searchQuery
+                  ? 'Try adjusting your search keywords.'
+                  : canManage
+                  ? 'Create your first Scope Group to manually bundle LC Gates and assign them to specific users.'
+                  : 'No scope groups are currently assigned to your account. Please contact an administrator to get access.'}
+              </p>
+              {!searchQuery && canManage && (
+                <button className="btn btn-primary" onClick={handleOpenCreate}>
+                  <FaPlus /> Create Your First Scope Group
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="sg-groups-grid">
+              {filteredGroups.map(group => {
+                const gateCount = group.gates?.length || group._count?.gates || 0;
+                const userCount = group.users?.length || group._count?.users || 0;
+                const previewGates = group.gates?.slice(0, 4) || [];
+                const remainingGates = gateCount - previewGates.length;
+
+                return (
+                  <div
+                    key={group.id}
+                    className="sg-group-card sg-clickable-card"
+                    onClick={() => handleCardClick(group)}
+                    title="Click to view included gates and devices"
+                  >
+                    <div
+                      className="sg-card-stripe"
+                      style={{ backgroundColor: group.color || '#0B3C7A' }}
+                    />
+
+                    <div className="sg-card-top">
+                      <div>
+                        <h3 className="sg-card-title">{group.name}</h3>
+                      </div>
+                    </div>
+
+                    <p className="sg-card-desc">
+                      {group.description || 'No description provided.'}
+                    </p>
+
+                    <div className="sg-card-meta">
+                      <span className="sg-pill gates">
+                        <FaMicrochip /> {gateCount} {gateCount === 1 ? 'Gate' : 'Gates'}
+                      </span>
+                      {canManage && (
+                        <span className="sg-pill users">
+                          <FaUsers /> {userCount} {userCount === 1 ? 'User' : 'Users'}
                         </span>
-                      ))}
-                      {remainingGates > 0 && (
-                        <span className="sg-more-chip">+{remainingGates} more</span>
                       )}
                     </div>
-                  )}
-                </div>
 
-                {/* Users Avatars */}
-                {userCount > 0 && (
-                  <div className="sg-users-avatars">
-                    {previewUsers.map(u => (
+                    {/* Gate Preview */}
+                    <div className="sg-gates-preview">
+                      <div className="sg-preview-label">Included Gates</div>
+                      {gateCount === 0 ? (
+                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>No gates assigned yet</span>
+                      ) : (
+                        <div className="sg-preview-chips">
+                          {previewGates.map(item => (
+                            <span key={item.gate.id} className="sg-gate-chip">
+                              {item.gate.lcNumber}
+                              {item.gate.locationName ? ` (${item.gate.locationName})` : ''}
+                            </span>
+                          ))}
+                          {remainingGates > 0 && (
+                            <span className="sg-more-chip">+{remainingGates} more</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Open Hint CTA */}
+                    <div className="sg-card-footer-cta">
+                      <span>View Included Gates ({gateCount})</span>
+                      <FaChevronRight size={13} />
+                    </div>
+
+                    {/* Admin Actions */}
+                    {canManage && (
                       <div
-                        key={u.user.id}
-                        className="sg-mini-avatar"
-                        title={`${u.user.fullName} (${u.user.role?.name || 'Member'})`}
+                        className="sg-card-actions"
+                        style={{ marginTop: 12 }}
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        {u.user.fullName.substring(0, 2).toUpperCase()}
-                      </div>
-                    ))}
-                    {userCount > previewUsers.length && (
-                      <div
-                        className="sg-mini-avatar"
-                        style={{ background: '#64748b' }}
-                        title={`${userCount - previewUsers.length} more users`}
-                      >
-                        +{userCount - previewUsers.length}
+                        <button
+                          className="btn btn-sm btn-secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEdit(group);
+                          }}
+                          title="Edit scope group"
+                        >
+                          <FaEdit /> Edit
+                        </button>
+                        <button
+                          className="btn btn-sm"
+                          style={{ color: '#ef4444', borderColor: '#fecaca', background: '#fef2f2' }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmGroup(group);
+                          }}
+                          title="Delete scope group"
+                        >
+                          <FaTrash />
+                        </button>
                       </div>
                     )}
                   </div>
-                )}
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
 
-                {/* Card Actions */}
-                <div className="sg-card-actions">
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => setViewingGroup(group)}
-                    title="View full group details"
-                  >
-                    <FaInfoCircle /> Details
-                  </button>
-                  {canManage && (
-                    <>
-                      <button
-                        className="btn btn-sm btn-secondary"
-                        onClick={() => handleOpenEdit(group)}
-                        title="Edit scope group"
-                      >
-                        <FaEdit /> Edit
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        style={{ color: '#ef4444', borderColor: '#fecaca', background: '#fef2f2' }}
-                        onClick={() => setDeleteConfirmGroup(group)}
-                        title="Delete scope group"
-                      >
-                        <FaTrash />
-                      </button>
-                    </>
-                  )}
+      {/* 2. DEDICATED SCOPE GROUP DETAIL PAGE */}
+      {viewMode === 'group_detail' && activeGroup && (
+        <div className="sg-group-detail-view fade-in">
+          {/* Breadcrumb Bar */}
+          <div className="sg-view-header">
+            <div className="sg-breadcrumb-bar">
+              <button className="btn btn-secondary btn-sm" onClick={handleBackToList}>
+                <FaArrowLeft /> Back
+              </button>
+              <span className="sg-breadcrumb-crumb" onClick={handleBackToList}>Scope Groups</span>
+              <span className="sg-breadcrumb-sep">/</span>
+              <span className="sg-breadcrumb-active">{activeGroup.name}</span>
+            </div>
+            {canManage && (
+              <button className="btn btn-secondary btn-sm" onClick={() => handleOpenEdit(activeGroup)}>
+                <FaEdit /> Edit Scope Group
+              </button>
+            )}
+          </div>
+
+          {/* Group Hero Card */}
+          <div className="sg-group-hero">
+            <div className="sg-hero-stripe" style={{ backgroundColor: activeGroup.color || '#0B3C7A' }} />
+            <div className="sg-hero-body">
+              <div className="sg-hero-title-row">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span className="sg-color-dot" style={{ backgroundColor: activeGroup.color || '#0B3C7A' }} />
+                  <h2 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, color: '#0f172a' }}>
+                    {activeGroup.name}
+                  </h2>
+                </div>
+                <span className="sg-pill gates">
+                  <FaMicrochip /> {activeGroup.gates?.length || 0} Included {activeGroup.gates?.length === 1 ? 'Gate' : 'Gates'}
+                </span>
+              </div>
+
+              <p className="sg-hero-desc">
+                {activeGroup.description || 'No description provided for this scope group.'}
+              </p>
+
+              {/* Hardware Metrics Summary */}
+              <div className="sg-hero-stats">
+                <div className="sg-hero-stat-item">
+                  <span className="sg-hero-stat-val">{activeGroup.gates?.length || 0}</span>
+                  <span className="sg-hero-stat-lbl">Included LC Gates</span>
+                </div>
+                <div className="sg-hero-stat-item">
+                  <span className="sg-hero-stat-val">
+                    {activeGroup.gates?.reduce((acc, g) => acc + (g.gate.masters?.length || 0), 0) || 0}
+                  </span>
+                  <span className="sg-hero-stat-lbl">Connected Masters</span>
+                </div>
+                <div className="sg-hero-stat-item">
+                  <span className="sg-hero-stat-val">
+                    {activeGroup.gates?.reduce(
+                      (acc, g) =>
+                        acc +
+                        (g.gate.masters?.reduce((mAcc, m) => mAcc + (m.childDevices?.length || 0), 0) || 0),
+                      0
+                    ) || 0}
+                  </span>
+                  <span className="sg-hero-stat-lbl">Total Slave Devices</span>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          </div>
+
+          {/* Included Gates Section */}
+          <div className="sg-section-header">
+            <div>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>
+                Included LC Gates ({activeGroupGates.length})
+              </h3>
+              <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b' }}>
+                Click on any gate card below to inspect its connected master units and slave devices.
+              </p>
+            </div>
+            <div className="sg-search-box" style={{ maxWidth: 320 }}>
+              <FaSearch color="#94a3b8" />
+              <input
+                type="text"
+                placeholder="Filter gates in this scope..."
+                value={activeGateSearch}
+                onChange={(e) => setActiveGateSearch(e.target.value)}
+              />
+              {activeGateSearch && (
+                <button
+                  onClick={() => setActiveGateSearch('')}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
+                >
+                  <FaTimes />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {activeGroupGates.length === 0 ? (
+            <div className="sg-empty-state" style={{ padding: 48 }}>
+              <FaMicrochip className="sg-empty-icon" />
+              <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>
+                {activeGateSearch ? 'No matching gates found' : 'No Gates in this Scope Group'}
+              </h4>
+              <p style={{ margin: 0 }}>
+                {activeGateSearch
+                  ? 'Try adjusting your search query.'
+                  : 'This scope group does not have any LC gates assigned yet.'}
+              </p>
+            </div>
+          ) : (
+            <div className="sg-scope-gates-grid">
+              {activeGroupGates.map(item => {
+                const g = item.gate;
+                const mastersCount = g.masters?.length || 0;
+                const slavesCount =
+                  g.masters?.reduce((acc: number, m: any) => acc + (m.childDevices?.length || 0), 0) || 0;
+                return (
+                  <div
+                    key={g.id}
+                    className="sg-scope-gate-card"
+                    onClick={() => handleGateClick(g)}
+                  >
+                    <div>
+                      <div className="sg-gate-card-header">
+                        <div className="sg-gate-badge">
+                          <FaMicrochip /> {g.lcNumber}
+                        </div>
+                        <span className="sg-gate-chevron">
+                          Inspect Devices <FaChevronRight size={11} />
+                        </span>
+                      </div>
+
+                      <h4 className="sg-gate-location-title">
+                        {g.locationName || g.name || 'LC Gate'}
+                      </h4>
+
+                      <div className="sg-gate-location-sub">
+                        <FaTrain style={{ color: '#0B3C7A' }} /> {g.zone || 'Zone N/A'} • {g.division || 'Division N/A'}
+                      </div>
+                    </div>
+
+                    <div className="sg-gate-hardware-pills">
+                      <span className="sg-pill master-pill">
+                        <FaCogs /> {mastersCount} {mastersCount === 1 ? 'Master Unit' : 'Master Units'}
+                      </span>
+                      <span className="sg-pill slave-pill">
+                        <FaPlug /> {slavesCount} {slavesCount === 1 ? 'Slave Device' : 'Slave Devices'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 3. DEDICATED GATE HARDWARE & DEVICES PAGE */}
+      {viewMode === 'gate_detail' && activeGate && (
+        <div className="sg-gate-detail-view fade-in">
+          {/* Breadcrumb Bar */}
+          <div className="sg-view-header">
+            <div className="sg-breadcrumb-bar">
+              <button className="btn btn-secondary btn-sm" onClick={handleBackToGroup}>
+                <FaArrowLeft /> Back
+              </button>
+              <span className="sg-breadcrumb-crumb" onClick={handleBackToList}>Scope Groups</span>
+              <span className="sg-breadcrumb-sep">/</span>
+              <span className="sg-breadcrumb-crumb" onClick={handleBackToGroup}>
+                {activeGroup?.name || 'Scope Group'}
+              </span>
+              <span className="sg-breadcrumb-sep">/</span>
+              <span className="sg-breadcrumb-active">{activeGate.lcNumber}</span>
+            </div>
+          </div>
+
+          {/* Gate Overview Hero Card */}
+          <div className="sg-gate-hero-card">
+            <div className="sg-gate-hero-top">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span className="sg-gate-hero-lc">{activeGate.lcNumber}</span>
+                <span className="badge badge-blue" style={{ fontSize: '0.88rem', padding: '4px 12px' }}>
+                  {activeGate.zone || 'Zone N/A'} • {activeGate.division || 'Division N/A'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <span className="sg-pill master-pill">
+                  <FaCogs /> {activeGate.masters?.length || 0} Masters
+                </span>
+                <span className="sg-pill slave-pill">
+                  <FaPlug />{' '}
+                  {activeGate.masters?.reduce((acc: number, m: any) => acc + (m.childDevices?.length || 0), 0) || 0} Slaves
+                </span>
+              </div>
+            </div>
+
+            <h3 className="sg-gate-hero-loc">
+              {activeGate.locationName || activeGate.name || 'LC Gate'}
+            </h3>
+
+            <div className="sg-gate-hero-meta">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <FaTrain style={{ color: '#0B3C7A' }} /> Railway Section: {activeGate.division || 'N/A'}, {activeGate.zone || 'N/A'}
+              </span>
+              {activeGate.latitude && activeGate.longitude && (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <FaMapMarkerAlt style={{ color: '#ef4444' }} /> Coordinates: {activeGate.latitude}, {activeGate.longitude}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Hardware & Devices Telemetry Section */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <h3 style={{ margin: '0 0 4px 0', fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}>
+                  Hardware Telemetry & Connected Devices
+                </h3>
+                <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b' }}>
+                  Live configuration of Master units and Slave sensors installed at this gate.
+                </p>
+              </div>
+              {activeGateLoading && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#0B3C7A', fontSize: '0.85rem' }}>
+                  <FaSyncAlt className="spin" /> Updating telemetry...
+                </div>
+              )}
+            </div>
+
+            {(!activeGate.masters || activeGate.masters.length === 0) ? (
+              <div className="sg-empty-state" style={{ padding: 48 }}>
+                <FaMicrochip className="sg-empty-icon" />
+                <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Master Units Configured</h4>
+                <p style={{ margin: 0 }}>
+                  This LC gate currently does not have any master telemetry units installed.
+                </p>
+              </div>
+            ) : (
+              <div className="sg-masters-stack">
+                {activeGate.masters.map((master: any) => (
+                  <div key={master.id} className="sg-master-unit-card">
+                    {/* Master Card Header */}
+                    <div className="sg-master-unit-header">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div className="sg-master-icon-badge">
+                          <FaMicrochip />
+                        </div>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
+                            {master.serialNumber}
+                          </h4>
+                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                            Master Unit Sequence #{master.masterSequence || 1}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span className="sg-power-badge">
+                          {master.powerSource === 'SOLAR' ? (
+                            <><FaSun style={{ color: '#f59e0b' }} /> Solar Power</>
+                          ) : (
+                            <><FaBolt style={{ color: '#3b82f6' }} /> Direct Current</>
+                          )}
+                        </span>
+                        <span className="sg-slaves-count-pill">
+                          {master.childDevices?.length || 0} {master.childDevices?.length === 1 ? 'Slave Device' : 'Slave Devices'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Slave Devices Panel */}
+                    <div className="sg-slave-devices-panel">
+                      <div className="sg-slave-devices-title">
+                        <FaPlug style={{ color: '#0284c7' }} /> Connected Slave Devices ({master.childDevices?.length || 0})
+                      </div>
+
+                      {(!master.childDevices || master.childDevices.length === 0) ? (
+                        <div className="sg-slave-empty">
+                          No slave devices connected to this master unit yet.
+                        </div>
+                      ) : (
+                        <div className="sg-slave-devices-grid">
+                          {master.childDevices.map((dev: any) => (
+                            <div key={dev.id} className="sg-slave-item-card">
+                              <div className="sg-slave-item-top">
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <div className="sg-slave-icon">
+                                    <FaPlug />
+                                  </div>
+                                  <strong className="sg-slave-serial">{dev.serialNumber}</strong>
+                                </div>
+                                <span className="sg-slave-seq-badge">Seq #{dev.deviceSequence || 1}</span>
+                              </div>
+
+                              <div className="sg-slave-item-bot">
+                                <span className="sg-slave-type-name">
+                                  {dev.type === 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor'}
+                                </span>
+                                <span className="sg-slave-type-pill">
+                                  {dev.type === 'DEVICE_1' ? 'Type A' : 'Type B'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -929,104 +1315,7 @@ export default function ScopeGroupManagement({ user }: Props) {
         </div>
       )}
 
-      {/* DETAIL MODAL */}
-      {viewingGroup && (
-        <div className="sg-modal-overlay" onClick={() => setViewingGroup(null)}>
-          <div className="sg-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 700 }}>
-            <div className="sg-modal-header">
-              <h3>
-                <FaLayerGroup style={{ color: viewingGroup.color || 'var(--primary)' }} />
-                {viewingGroup.name}
-              </h3>
-              <button
-                className="icon-btn"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem' }}
-                onClick={() => setViewingGroup(null)}
-              >
-                <FaTimes />
-              </button>
-            </div>
 
-            <div className="sg-modal-body" style={{ maxHeight: '70vh' }}>
-              <div style={{ marginBottom: 20 }}>
-                <h4 style={{ margin: '0 0 6px 0', fontSize: '0.9rem', color: '#64748b', textTransform: 'uppercase' }}>
-                  Description
-                </h4>
-                <p style={{ margin: 0, color: '#1e293b', fontSize: '0.95rem' }}>
-                  {viewingGroup.description || 'No description provided.'}
-                </p>
-              </div>
-
-              {/* Gates Section */}
-              <div style={{ marginBottom: 24 }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#64748b', textTransform: 'uppercase', display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Included Gates ({viewingGroup.gates?.length || 0})</span>
-                </h4>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
-                  {(!viewingGroup.gates || viewingGroup.gates.length === 0) ? (
-                    <div style={{ color: '#94a3b8', fontSize: '0.88rem' }}>No gates in this group.</div>
-                  ) : (
-                    viewingGroup.gates.map(item => (
-                      <div key={item.gate.id} style={{ padding: '8px 12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                        <strong style={{ color: '#0f172a', fontSize: '0.92rem' }}>{item.gate.lcNumber}</strong>
-                        {item.gate.name && <span style={{ color: '#475569', fontSize: '0.86rem' }}> — {item.gate.name}</span>}
-                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2 }}>
-                          {item.gate.locationName} {item.gate.zone ? `• ${item.gate.zone}` : ''} {item.gate.division ? `(${item.gate.division})` : ''}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Users Section */}
-              <div>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#64748b', textTransform: 'uppercase' }}>
-                  Assigned Team Members ({viewingGroup.users?.length || 0})
-                </h4>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {(!viewingGroup.users || viewingGroup.users.length === 0) ? (
-                    <div style={{ color: '#94a3b8', fontSize: '0.88rem' }}>No users assigned to this scope.</div>
-                  ) : (
-                    viewingGroup.users.map(u => (
-                      <div key={u.user.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--primary)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 700 }}>
-                            {u.user.fullName.substring(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <strong style={{ fontSize: '0.9rem', color: '#1e293b' }}>{u.user.fullName}</strong>
-                            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>{u.user.email} • {u.user.department || 'N/A'}</div>
-                          </div>
-                        </div>
-                        <span className="badge" style={{ backgroundColor: 'var(--secondary, #0e9aa7)', color: 'white', fontSize: '0.75rem' }}>
-                          {u.user.role?.name || 'User'}
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="sg-modal-footer">
-              <button className="btn btn-secondary" onClick={() => setViewingGroup(null)}>
-                Close
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  const grp = viewingGroup;
-                  setViewingGroup(null);
-                  handleOpenEdit(grp);
-                }}
-              >
-                <FaEdit /> Edit Scope Group
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* DELETE CONFIRMATION MODAL */}
       {deleteConfirmGroup && (

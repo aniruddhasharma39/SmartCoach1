@@ -18,6 +18,25 @@ export type User = {
   }[];
 };
 
+export type ChildDeviceItem = {
+  id: number;
+  serialNumber: string;
+  deviceSequence: number;
+  type: string;
+  masterId: number;
+  evidences?: any[];
+};
+
+export type MasterUnitItem = {
+  id: number;
+  serialNumber: string;
+  masterSequence: number;
+  powerSource: 'SOLAR' | 'DIRECT';
+  gateId: number;
+  childDevices?: ChildDeviceItem[];
+  evidences?: any[];
+};
+
 export type ScopeGroupItem = {
   id: number;
   name: string;
@@ -37,6 +56,9 @@ export type ScopeGroupItem = {
       locationName: string;
       zone?: string | null;
       division?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+      masters?: MasterUnitItem[];
     };
   }[];
   users?: {

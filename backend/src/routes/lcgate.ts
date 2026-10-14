@@ -341,6 +341,42 @@ router.delete('/devices/:id', authenticate, async (req, res, next) => {
   }
 });
 
+// Get single LC Gate with masters, childDevices, and evidences
+router.get('/:id', authenticate, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: 'Invalid gate ID' });
+
+    const gate = await prisma.lCGate.findUnique({
+      where: { id },
+      include: {
+        scopeGroups: {
+          include: {
+            scopeGroup: {
+              select: { id: true, name: true, color: true }
+            }
+          }
+        },
+        masters: {
+          orderBy: { masterSequence: 'asc' },
+          include: {
+            childDevices: {
+              orderBy: { deviceSequence: 'asc' },
+              include: { evidences: true }
+            },
+            evidences: true
+          }
+        }
+      }
+    });
+
+    if (!gate) return res.status(404).json({ error: 'Gate not found' });
+    res.json(gate);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Delete an LC Gate (cascades) - declared last so it doesn't shadow the paths above.
 router.delete('/:id', authenticate, async (req, res, next) => {
   try {
