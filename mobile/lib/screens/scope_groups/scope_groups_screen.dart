@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config.dart';
 import '../../main.dart';
+import 'create_edit_scope_group_screen.dart';
 
 Color parseHexColor(String? hexString) {
   if (hexString == null || hexString.isEmpty) return const Color(0xFF0B3C7A);
@@ -27,10 +28,22 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
   List<dynamic> _scopeGroups = [];
   bool _isLoading = true;
   String _token = '';
+  String _searchQuery = '';
+
+  bool _isDeveloper = false;
+  bool _hasAssignedScopes = false;
+
+  bool get _canManage => _isDeveloper && !_hasAssignedScopes;
 
   @override
   void initState() {
     super.initState();
+    // Pre-calculate permissions based on user passed from login/dashboard
+    final role = widget.user['role']?.toString();
+    final userScopes = widget.user['scopeGroups'];
+    _isDeveloper = role == 'Developer';
+    _hasAssignedScopes = (userScopes is List && userScopes.isNotEmpty);
+
     _loadTokenAndFetch();
   }
 
@@ -45,6 +58,22 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
   Future<void> _fetchScopeGroups() async {
     setState(() => _isLoading = true);
     try {
+      // 1. Fetch live permission & assigned status from /my-scope
+      try {
+        final myScopeRes = await http.get(
+          Uri.parse('$baseUrl/scope-groups/my-scope'),
+          headers: {'Authorization': 'Bearer $_token'},
+        );
+        if (myScopeRes.statusCode == 200) {
+          final myScopeData = json.decode(myScopeRes.body);
+          if (myScopeData is Map) {
+            _hasAssignedScopes = myScopeData['hasAssignedScopes'] == true;
+            _isDeveloper = myScopeData['isDeveloper'] == true;
+          }
+        }
+      } catch (_) {}
+
+      // 2. Fetch accessible scope groups
       final res = await http.get(
         Uri.parse('$baseUrl/scope-groups'),
         headers: {'Authorization': 'Bearer $_token'},
@@ -75,6 +104,93 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
     }
   }
 
+  void _navigateToCreate() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateEditScopeGroupScreen(token: _token),
+      ),
+    );
+    if (result == true) {
+      _fetchScopeGroups();
+    }
+  }
+
+  void _navigateToEdit(Map<String, dynamic> group) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CreateEditScopeGroupScreen(
+          group: group,
+          token: _token,
+        ),
+      ),
+    );
+    if (result == true) {
+      _fetchScopeGroups();
+    }
+  }
+
+  void _confirmDeleteGroup(Map<String, dynamic> group) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Scope Group?'),
+        content: Text(
+          'Are you sure you want to delete "${group['name']}"? All associated gate and user assignments will be unlinked.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.danger,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _deleteGroup(group['id']);
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteGroup(dynamic id) async {
+    setState(() => _isLoading = true);
+    try {
+      final res = await http.delete(
+        Uri.parse('$baseUrl/scope-groups/$id'),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+      if (res.statusCode == 200 || res.statusCode == 204) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Scope group deleted successfully'), backgroundColor: AppColors.success),
+        );
+        _fetchScopeGroups();
+      } else {
+        final data = json.decode(res.body);
+        final err = data['error'] ?? 'Failed to delete scope group';
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(err), backgroundColor: AppColors.danger),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.danger),
+      );
+    }
+  }
+
   void _navigateToGroupDetail(Map<String, dynamic> group) {
     Navigator.push(
       context,
@@ -87,132 +203,318 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
     );
   }
 
+  List<dynamic> get _filteredGroups {
+    if (_searchQuery.trim().isEmpty) return _scopeGroups;
+    final q = _searchQuery.toLowerCase().trim();
+    return _scopeGroups.where((g) {
+      final name = (g['name'] ?? '').toString().toLowerCase();
+      final desc = (g['description'] ?? '').toString().toLowerCase();
+      return name.contains(q) || desc.contains(q);
+    }).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final filtered = _filteredGroups;
+
+    // Aggregate statistics across groups
+    final uniqueGates = <dynamic>{};
+    final uniqueUsers = <dynamic>{};
+    for (final g in _scopeGroups) {
+      final gates = (g['gates'] as List?) ?? [];
+      for (final item in gates) {
+        final gid = item['gate']?['id'] ?? item['gateId'] ?? item['id'];
+        if (gid != null) uniqueGates.add(gid);
+      }
+      final users = (g['users'] as List?) ?? [];
+      for (final item in users) {
+        final uid = item['user']?['id'] ?? item['userId'] ?? item['id'];
+        if (uid != null) uniqueUsers.add(uid);
+      }
+    }
+
     return Scaffold(
+      floatingActionButton: _canManage
+          ? FloatingActionButton.extended(
+              onPressed: _navigateToCreate,
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add),
+              label: const Text('New Scope Group', style: TextStyle(fontWeight: FontWeight.bold)),
+            )
+          : null,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _fetchScopeGroups,
-              child: _scopeGroups.isEmpty
-                  ? Center(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  // Role / Mode Banner
+                  if (_hasAssignedScopes)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBFDBFE)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.lock_outline, color: Color(0xFF1D4ED8), size: 18),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Assigned Scope View: Displaying gates restricted to your assigned operational scope.',
+                              style: TextStyle(color: Color(0xFF1E40AF), fontSize: 12.5, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Top Stats Summary Card
+                  Card(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      side: BorderSide(color: Colors.grey.shade200),
+                    ),
+                    elevation: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          _buildStatItem('${_scopeGroups.length}', 'Scope Groups'),
+                          _buildStatItem('${uniqueGates.length}', 'Scoped Gates'),
+                          if (_canManage)
+                            _buildStatItem('${uniqueUsers.length}', 'Assigned Users'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // Search Bar
+                  TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Search scope groups...',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () => setState(() => _searchQuery = ''),
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: Colors.grey.shade300)),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                  ),
+                  const SizedBox(height: 14),
+
+                  if (filtered.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(40),
+                      alignment: Alignment.center,
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(Icons.layers_outlined, size: 54, color: Colors.grey.shade400),
                           const SizedBox(height: 14),
-                          const Text(
-                            'No Scope Groups Found',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
+                          Text(
+                            _searchQuery.isNotEmpty ? 'No Matching Scope Groups' : 'No Scope Groups Found',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'No scope groups are currently assigned to your account.',
+                            _canManage
+                                ? 'Tap the "+ New Scope Group" button below to create one.'
+                                : 'No scope groups are currently assigned to your account.',
+                            textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
                           ),
                         ],
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _scopeGroups.length,
-                      itemBuilder: (context, index) {
-                        final group = _scopeGroups[index];
-                        final gates = (group['gates'] as List?) ?? [];
-                        final color = parseHexColor(group['color']);
+                  else
+                    ...filtered.map((group) {
+                      final gates = (group['gates'] as List?) ?? [];
+                      final users = (group['users'] as List?) ?? [];
+                      final color = parseHexColor(group['color']);
 
-                        return Card(
-                          margin: const EdgeInsets.only(bottom: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: BorderSide(color: Colors.grey.shade200),
-                          ),
-                          elevation: 1,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap: () => _navigateToGroupDetail(group),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        width: 12,
-                                        height: 12,
-                                        decoration: BoxDecoration(
-                                          color: color,
-                                          shape: BoxShape.circle,
-                                        ),
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(color: Colors.grey.shade200),
+                        ),
+                        elevation: 1,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _navigateToGroupDetail(group),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 13,
+                                      height: 13,
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        shape: BoxShape.circle,
                                       ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          group['name'] ?? 'Scope Group',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16,
-                                            color: Color(0xFF0F172A),
-                                          ),
-                                        ),
-                                      ),
-                                      const Icon(Icons.chevron_right, color: Colors.grey),
-                                    ],
-                                  ),
-                                  if (group['description'] != null && group['description'].toString().isNotEmpty) ...[
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      group['description'],
-                                      style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
                                     ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        group['name'] ?? 'Scope Group',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                    ),
+                                    // Action Menu for Admins / Developers
+                                    if (_canManage)
+                                      PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, size: 20, color: Colors.grey),
+                                        onSelected: (val) {
+                                          if (val == 'edit') {
+                                            _navigateToEdit(group);
+                                          } else if (val == 'delete') {
+                                            _confirmDeleteGroup(group);
+                                          }
+                                        },
+                                        itemBuilder: (_) => [
+                                          const PopupMenuItem(
+                                            value: 'edit',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.edit, size: 18, color: AppColors.primary),
+                                                SizedBox(width: 8),
+                                                Text('Edit Group'),
+                                              ],
+                                            ),
+                                          ),
+                                          const PopupMenuItem(
+                                            value: 'delete',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                                                SizedBox(width: 8),
+                                                Text('Delete Group', style: TextStyle(color: AppColors.danger)),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    else
+                                      const Icon(Icons.chevron_right, color: Colors.grey),
                                   ],
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
+                                ),
+                                if (group['description'] != null && group['description'].toString().isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    group['description'],
+                                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFE0F2FE),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(Icons.device_hub, size: 13, color: Color(0xFF0369A1)),
+                                          const SizedBox(width: 5),
+                                          Text(
+                                            '${gates.length} ${gates.length == 1 ? "Gate" : "Gates"}',
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF0369A1),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (_canManage) ...[
+                                      const SizedBox(width: 8),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                                         decoration: BoxDecoration(
-                                          color: const Color(0xFFE0F2FE),
+                                          color: const Color(0xFFECFDF5),
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(Icons.device_hub, size: 14, color: Color(0xFF0369A1)),
+                                            const Icon(Icons.people_outline, size: 13, color: Color(0xFF065F46)),
                                             const SizedBox(width: 5),
                                             Text(
-                                              '${gates.length} ${gates.length == 1 ? "Gate" : "Gates"} Included',
+                                              '${users.length} ${users.length == 1 ? "User" : "Users"}',
                                               style: const TextStyle(
-                                                fontSize: 12,
+                                                fontSize: 11.5,
                                                 fontWeight: FontWeight.w700,
-                                                color: Color(0xFF0369A1),
+                                                color: Color(0xFF065F46),
                                               ),
                                             ),
                                           ],
                                         ),
                                       ),
-                                      const Spacer(),
-                                      const Text(
-                                        'View Gates →',
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: AppColors.primary,
-                                        ),
-                                      ),
                                     ],
-                                  ),
-                                ],
-                              ),
+                                    const Spacer(),
+                                    const Text(
+                                      'View Gates →',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      },
-                    ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
             ),
+    );
+  }
+
+  Widget _buildStatItem(String value, String label) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.primary),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11.5, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
+        ),
+      ],
     );
   }
 }
