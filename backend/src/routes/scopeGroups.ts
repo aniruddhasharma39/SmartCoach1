@@ -77,22 +77,46 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
 });
 
 // Admin / Scope Manager guard helper
-const canManageScopes = (req: AuthRequest) => {
-  if (req.user?.role === 'Developer') return true;
-  return req.user?.allowedModules.includes('scope-groups') || req.user?.allowedModules.includes('manage-users');
-};
-
-const requireScopeManager = (req: AuthRequest, res: any, next: any) => {
-  if (!canManageScopes(req)) {
-    return res.status(403).json({ error: 'Forbidden: Access to Scope Groups management required' });
-  }
-  next();
-};
-
-// 2. List all Scope Groups
-router.get('/', requireScopeManager, async (req: AuthRequest, res, next) => {
+const requireScopeAdmin = async (req: AuthRequest, res: any, next: any) => {
   try {
+    if (req.user?.role !== 'Developer') {
+      return res.status(403).json({ error: 'Forbidden: Only administrators can create, edit, or delete scope groups' });
+    }
+    // Check if user is restricted by being assigned to a scope group
+    const assignedCount = await prisma.scopeGroupUser.count({
+      where: { userId: req.user!.id }
+    });
+    if (assignedCount > 0) {
+      return res.status(403).json({ error: 'Forbidden: Assigned scope members have read-only access and cannot create or modify scope groups' });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 2. List Scope Groups (Admins see all; assigned users see only their assigned scope group)
+router.get('/', async (req: AuthRequest, res, next) => {
+  try {
+    const isDeveloper = req.user?.role === 'Developer';
+    const assignedUserRecords = await prisma.scopeGroupUser.findMany({
+      where: { userId: req.user!.id },
+      select: { scopeGroupId: true }
+    });
+    const hasAssignedScopes = assignedUserRecords.length > 0;
+
+    // Check access permission
+    if (!isDeveloper && !hasAssignedScopes && !req.user?.allowedModules.includes('scope-groups')) {
+      return res.status(403).json({ error: 'Forbidden: Access to Scope Groups required' });
+    }
+
+    const whereClause: any = {};
+    if (hasAssignedScopes) {
+      whereClause.id = { in: assignedUserRecords.map(r => r.scopeGroupId) };
+    }
+
     const groups = await prisma.scopeGroup.findMany({
+      where: whereClause,
       orderBy: { createdAt: 'desc' },
       include: {
         _count: {
@@ -137,10 +161,21 @@ router.get('/', requireScopeManager, async (req: AuthRequest, res, next) => {
 });
 
 // 3. Get single Scope Group by ID
-router.get('/:id', requireScopeManager, async (req: AuthRequest, res, next) => {
+router.get('/:id', async (req: AuthRequest, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid scope group ID' });
+
+    const isDeveloper = req.user?.role === 'Developer';
+    const assignedUserRecords = await prisma.scopeGroupUser.findMany({
+      where: { userId: req.user!.id },
+      select: { scopeGroupId: true }
+    });
+    const hasAssignedScopes = assignedUserRecords.length > 0;
+
+    if (hasAssignedScopes && !assignedUserRecords.some(r => r.scopeGroupId === id)) {
+      return res.status(403).json({ error: 'Forbidden: You do not have access to this scope group' });
+    }
 
     const group = await prisma.scopeGroup.findUnique({
       where: { id },
@@ -184,7 +219,7 @@ const scopeGroupSchema = z.object({
 });
 
 // 4. Create Scope Group
-router.post('/', requireScopeManager, async (req: AuthRequest, res, next) => {
+router.post('/', requireScopeAdmin, async (req: AuthRequest, res, next) => {
   try {
     const data = scopeGroupSchema.parse(req.body);
     const existing = await prisma.scopeGroup.findUnique({ where: { name: data.name } });
@@ -242,7 +277,7 @@ router.post('/', requireScopeManager, async (req: AuthRequest, res, next) => {
 });
 
 // 5. Update Scope Group
-router.put('/:id', requireScopeManager, async (req: AuthRequest, res, next) => {
+router.put('/:id', requireScopeAdmin, async (req: AuthRequest, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid scope group ID' });
@@ -332,7 +367,7 @@ router.put('/:id', requireScopeManager, async (req: AuthRequest, res, next) => {
 });
 
 // 6. Delete Scope Group
-router.delete('/:id', requireScopeManager, async (req: AuthRequest, res, next) => {
+router.delete('/:id', requireScopeAdmin, async (req: AuthRequest, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) return res.status(400).json({ error: 'Invalid scope group ID' });
@@ -357,7 +392,7 @@ router.delete('/:id', requireScopeManager, async (req: AuthRequest, res, next) =
 });
 
 // 7. Update scopes assigned to a specific user (Convenience endpoint for Manage Users)
-router.put('/user/:userId', requireScopeManager, async (req: AuthRequest, res, next) => {
+router.put('/user/:userId', requireScopeAdmin, async (req: AuthRequest, res, next) => {
   try {
     const userId = parseInt(req.params.userId, 10);
     if (isNaN(userId)) return res.status(400).json({ error: 'Invalid user ID' });

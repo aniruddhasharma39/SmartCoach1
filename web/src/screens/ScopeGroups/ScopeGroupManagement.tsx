@@ -11,7 +11,8 @@ import {
   FaMicrochip,
   FaInfoCircle,
   FaTag,
-  FaCheckDouble
+  FaCheckDouble,
+  FaLock
 } from 'react-icons/fa';
 import type { User, ScopeGroupItem } from '../../types';
 import { API_URL } from '../../config';
@@ -38,7 +39,11 @@ const authHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem('token')}`
 });
 
-export default function ScopeGroupManagement({ user: _user }: Props) {
+export default function ScopeGroupManagement({ user }: Props) {
+  // If user is assigned to any scope group, or is not a developer, they are restricted to read-only scope view
+  const isAssigned = Boolean(user.scopeGroups && user.scopeGroups.length > 0);
+  const canManage = user.role === 'Developer' && !isAssigned;
+
   const [scopeGroups, setScopeGroups] = useState<ScopeGroupItem[]>([]);
   const [allGates, setAllGates] = useState<any[]>([]);
   const [allUsers, setAllUsers] = useState<any[]>([]);
@@ -120,7 +125,11 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
 
   const loadInitialData = async () => {
     setLoading(true);
-    await Promise.all([fetchScopeGroups(), fetchAllGates(), fetchAllUsers()]);
+    if (canManage) {
+      await Promise.all([fetchScopeGroups(), fetchAllGates(), fetchAllUsers()]);
+    } else {
+      await fetchScopeGroups();
+    }
     setLoading(false);
   };
 
@@ -158,6 +167,7 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
 
   // Open Create Modal
   const handleOpenCreate = () => {
+    if (!canManage) return;
     setEditingGroupId(null);
     setFormName('');
     setFormDesc('');
@@ -171,6 +181,7 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
 
   // Open Edit Modal
   const handleOpenEdit = (group: ScopeGroupItem) => {
+    if (!canManage) return;
     setEditingGroupId(group.id);
     setFormName(group.name);
     setFormDesc(group.description || '');
@@ -269,6 +280,7 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
   // Submit Create or Edit Form
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage) return;
     if (!formName.trim()) {
       setFormError('Please enter a Scope Group name');
       setModalTab('details');
@@ -339,15 +351,23 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
       <div className="sg-header">
         <div className="sg-header-titles">
           <h2>
-            <FaLayerGroup /> Scope Groups Console
+            <FaLayerGroup /> {canManage ? 'Scope Groups Console' : 'My Assigned Scope Groups'}
           </h2>
           <p>
-            Create granular access groups. Manually assign specific clusters & LC gates to designated team members.
+            {canManage
+              ? 'Create granular access groups. Manually assign specific clusters & LC gates to designated team members.'
+              : 'View the scope groups and LC gates assigned to your account. Your operational access is restricted to these gates.'}
           </p>
         </div>
-        <button className="btn btn-primary" onClick={handleOpenCreate}>
-          <FaPlus /> Create Scope Group
-        </button>
+        {canManage ? (
+          <button className="btn btn-primary" onClick={handleOpenCreate}>
+            <FaPlus /> Create Scope Group
+          </button>
+        ) : (
+          <div className="sg-readonly-badge">
+            <FaLock style={{ color: '#0B3C7A' }} /> Assigned Member • Read-Only
+          </div>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -418,14 +438,20 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
         <div className="sg-empty-state">
           <FaLayerGroup className="sg-empty-icon" />
           <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>
-            {searchQuery ? 'No scope groups match your search' : 'No Scope Groups Created Yet'}
+            {searchQuery
+              ? 'No scope groups match your search'
+              : canManage
+              ? 'No Scope Groups Created Yet'
+              : 'No Scope Groups Assigned'}
           </h3>
           <p style={{ margin: '0 0 18px 0', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto' }}>
             {searchQuery
               ? 'Try adjusting your search keywords.'
-              : 'Create your first Scope Group to manually bundle LC Gates and assign them to specific users.'}
+              : canManage
+              ? 'Create your first Scope Group to manually bundle LC Gates and assign them to specific users.'
+              : 'No scope groups are currently assigned to your account. Please contact an administrator to get access.'}
           </p>
-          {!searchQuery && (
+          {!searchQuery && canManage && (
             <button className="btn btn-primary" onClick={handleOpenCreate}>
               <FaPlus /> Create Your First Scope Group
             </button>
@@ -519,21 +545,25 @@ export default function ScopeGroupManagement({ user: _user }: Props) {
                   >
                     <FaInfoCircle /> Details
                   </button>
-                  <button
-                    className="btn btn-sm btn-secondary"
-                    onClick={() => handleOpenEdit(group)}
-                    title="Edit scope group"
-                  >
-                    <FaEdit /> Edit
-                  </button>
-                  <button
-                    className="btn btn-sm"
-                    style={{ color: '#ef4444', borderColor: '#fecaca', background: '#fef2f2' }}
-                    onClick={() => setDeleteConfirmGroup(group)}
-                    title="Delete scope group"
-                  >
-                    <FaTrash />
-                  </button>
+                  {canManage && (
+                    <>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => handleOpenEdit(group)}
+                        title="Edit scope group"
+                      >
+                        <FaEdit /> Edit
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        style={{ color: '#ef4444', borderColor: '#fecaca', background: '#fef2f2' }}
+                        onClick={() => setDeleteConfirmGroup(group)}
+                        title="Delete scope group"
+                      >
+                        <FaTrash />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             );
