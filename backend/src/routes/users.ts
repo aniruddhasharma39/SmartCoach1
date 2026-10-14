@@ -123,23 +123,61 @@ router.put('/request/:id/approve', requireModule('manage-users'), async (req: an
       mappedMetadata[label] = v;
     }
     
-    // Create the actual user
-    const user = await prisma.user.create({
-      data: {
-        fullName: extract(['name', 'fullname']) || 'Unknown',
-        email: extract(['email']) || `temp-${Date.now()}@example.com`,
-        mobile: extract(['phone', 'mobile', 'contact']) || `${Date.now()}`.slice(-10),
-        employeeId: extract(['emp', 'employee id']) || `EMP-${Date.now()}`,
-        department: extract(['department', 'dept', 'designation']) || 'Unknown',
-        requestedRoleId: request.requestedRoleId,
-        roleId: data.roleId,
-        passwordHash: (formData.password && formData.password.trim().length > 0)
-          ? formData.password
-          : await bcrypt.hash('123456', 10),
-        status: 'APPROVED',
-        metadata: JSON.stringify(mappedMetadata)
+    const userFullName = extract(['name', 'fullname']) || 'Unknown';
+    const userEmail = extract(['email']) || `temp-${Date.now()}@example.com`;
+    const userMobile = extract(['phone', 'mobile', 'contact']) || `${Date.now()}`.slice(-10);
+    const userEmpId = extract(['emp', 'employee id']) || `EMP-${Date.now()}`;
+
+    // Verify collision before attempting create
+    const collisionUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { mobile: userMobile },
+          { email: { equals: userEmail, mode: 'insensitive' } },
+          { employeeId: { equals: userEmpId, mode: 'insensitive' } },
+        ]
       }
     });
+
+    if (collisionUser) {
+      let conflictingItem = 'identifiers';
+      if (collisionUser.mobile === userMobile) conflictingItem = `Mobile Number ('${userMobile}')`;
+      else if (collisionUser.email.toLowerCase() === userEmail.toLowerCase()) conflictingItem = `Email ('${userEmail}')`;
+      else if (collisionUser.employeeId.toLowerCase() === userEmpId.toLowerCase()) conflictingItem = `Employee ID ('${userEmpId}')`;
+
+      return res.status(409).json({
+        error: `Cannot approve request: An active user already exists with matching ${conflictingItem} (${collisionUser.fullName}).`
+      });
+    }
+
+    // Create the actual user
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          fullName: userFullName,
+          email: userEmail,
+          mobile: userMobile,
+          employeeId: userEmpId,
+          department: extract(['department', 'dept', 'designation']) || 'Unknown',
+          requestedRoleId: request.requestedRoleId,
+          roleId: data.roleId,
+          passwordHash: (formData.password && formData.password.trim().length > 0)
+            ? formData.password
+            : await bcrypt.hash('123456', 10),
+          status: 'APPROVED',
+          metadata: JSON.stringify(mappedMetadata)
+        }
+      });
+    } catch (err: any) {
+      if (err.code === 'P2002') {
+        const target = err.meta?.target || 'unique field';
+        return res.status(409).json({
+          error: `Cannot approve request: Duplicate conflict on ${Array.isArray(target) ? target.join(', ') : target}.`
+        });
+      }
+      throw err;
+    }
 
     await prisma.registrationRequest.update({
       where: { id },

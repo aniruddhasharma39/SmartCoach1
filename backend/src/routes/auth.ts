@@ -7,6 +7,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { send2FactorSmsOtp } from '../lib/twofactor';
+import { validateRegistrationUniqueness } from '../lib/uniqueness';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -53,6 +54,15 @@ router.post('/register', upload.any(), async (req, res, next) => {
     const form = await prisma.registrationForm.findUnique({ where: { id: formId } });
     if (!form || form.status !== 'LIVE') {
       return res.status(400).json({ error: 'Invalid or inactive registration form' });
+    }
+
+    // Verify Uniqueness Constraints (Primary identity fields & builder-specified unique fields)
+    const uniquenessResult = await validateRegistrationUniqueness(form.schema, parsedData);
+    if (!uniquenessResult.isValid) {
+      return res.status(409).json({ 
+        error: uniquenessResult.error,
+        conflicts: uniquenessResult.conflicts 
+      });
     }
 
     // Upload files to Cloudinary
@@ -103,9 +113,9 @@ router.get('/registration-form', async (req, res, next) => {
       const defaultSchema = {
         fields: [
           { id: '1', type: 'text', name: 'fullName', label: 'Full Name', required: true, placeholder: 'Enter your full name' },
-          { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, placeholder: '10-digit mobile number' },
-          { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, placeholder: 'name@example.com' },
-          { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, placeholder: 'e.g. EMP-101' },
+          { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, unique: true, placeholder: '10-digit mobile number' },
+          { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, unique: true, placeholder: 'name@example.com' },
+          { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, unique: true, placeholder: 'e.g. EMP-101' },
           { id: '5', type: 'text', name: 'department', label: 'Department', required: true, placeholder: 'e.g. Engineering' },
           { id: '6', type: 'password', name: 'password', label: 'Password', required: true, placeholder: 'Create a password' }
         ],
@@ -142,9 +152,9 @@ router.get('/registration-form', async (req, res, next) => {
     const defaultSchema = {
       fields: [
         { id: '1', type: 'text', name: 'fullName', label: 'Full Name', required: true, placeholder: 'Enter your full name' },
-        { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, placeholder: '10-digit mobile number' },
-        { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, placeholder: 'name@example.com' },
-        { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, placeholder: 'e.g. EMP-101' },
+        { id: '2', type: 'phone', name: 'mobile', label: 'Mobile Number', required: true, unique: true, placeholder: '10-digit mobile number' },
+        { id: '3', type: 'email', name: 'email', label: 'Email Address', required: true, unique: true, placeholder: 'name@example.com' },
+        { id: '4', type: 'text', name: 'employeeId', label: 'Employee ID', required: true, unique: true, placeholder: 'e.g. EMP-101' },
         { id: '5', type: 'text', name: 'department', label: 'Department', required: true, placeholder: 'e.g. Engineering' },
         { id: '6', type: 'password', name: 'password', label: 'Password', required: true, placeholder: 'Create a password' }
       ],
@@ -590,6 +600,11 @@ router.get('/me', authenticate, async (req: any, res, next) => {
       color: sg.scopeGroup.color,
       description: sg.scopeGroup.description
     })) || [];
+
+    // If user has assigned scope groups, ensure 'lc-gates' is available in allowedModules
+    if (scopeGroups.length > 0 && !allowedModules.includes('lc-gates')) {
+      allowedModules.unshift('lc-gates');
+    }
 
     res.json({
       id: user.id,
