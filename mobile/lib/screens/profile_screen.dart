@@ -325,20 +325,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ],
                     ),
-                    const Divider(height: 24),
-                    if (roleName == 'Developer')
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'Full Unrestricted Access (Developer Mode)',
-                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.primary),
-                        ),
-                      )
-                    else if ((_profile['scopeGroups'] as List?)?.isNotEmpty ?? false)
+                    if ((_profile['scopeGroups'] as List?)?.isNotEmpty ?? false)
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -351,6 +338,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             visualDensity: VisualDensity.compact,
                           );
                         }).toList(),
+                      )
+                    else if (roleName == 'Developer')
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Full Unrestricted Access (Developer Mode)',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: AppColors.primary),
+                        ),
                       )
                     else
                       const Text(

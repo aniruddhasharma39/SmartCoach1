@@ -74,17 +74,19 @@ export default function ClusterDashboard(_props: Props) {
 
   const fetchScopeData = async () => {
     try {
+      // 1. Always fetch my-scope to see which Scope Groups the current user belongs to
+      const myRes = await fetch(`${API_URL}/api/v1/scope-groups/my-scope`, { headers: authHeaders() });
+      if (myRes.ok) {
+        const myData = await myRes.json();
+        setMyScopeGroups(myData.scopeGroups || []);
+      }
+
+      // 2. If user is Developer, also fetch all scope groups for the admin dropdown selector
       if (_props.user.role === 'Developer') {
         const res = await fetch(`${API_URL}/api/v1/scope-groups`, { headers: authHeaders() });
         if (res.ok) {
           const data = await res.json();
           setAllScopeGroupsList(Array.isArray(data) ? data : []);
-        }
-      } else {
-        const res = await fetch(`${API_URL}/api/v1/scope-groups/my-scope`, { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          setMyScopeGroups(data.scopeGroups || []);
         }
       }
     } catch (e) {
@@ -227,7 +229,8 @@ export default function ClusterDashboard(_props: Props) {
                     }}
                     style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '0.82rem', fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }}
                   >
-                    <option value="">All Gates (Unrestricted)</option>
+                    <option value="">My Assigned Scope</option>
+                    <option value="all">All Gates (Admin View)</option>
                     {allScopeGroupsList.map(sg => (
                       <option key={sg.id} value={sg.id}>{sg.name} ({sg._count?.gates || sg.gates?.length || 0} gates)</option>
                     ))}
@@ -373,8 +376,8 @@ export default function ClusterDashboard(_props: Props) {
             </div>
           )}
 
-          {/* Active Scope Banner for non-developers */}
-          {_props.user.role !== 'Developer' && myScopeGroups.length > 0 && (
+          {/* Active Scope Banner for assigned scopes */}
+          {myScopeGroups.length > 0 && developerScopeId !== 'all' && (
             <div style={{ margin: '0 0 16px 0', padding: '10px 16px', background: 'rgba(11, 60, 122, 0.05)', border: '1px solid rgba(11, 60, 122, 0.15)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <FaLayerGroup style={{ color: 'var(--primary)' }} />
@@ -393,15 +396,15 @@ export default function ClusterDashboard(_props: Props) {
           ) : gates.length === 0 ? (
             <div className="empty-state glass-card">
               <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                {_props.user.role === 'Developer' ? (
+                {myScopeGroups.length === 0 && _props.user.role === 'Developer' ? (
                   <FaArchway size={48} color="#64748b" />
                 ) : (
                   <FaShieldAlt size={48} color="#0B3C7A" />
                 )}
               </div>
-              <h3>{_props.user.role === 'Developer' ? 'No Gates Found' : 'No Gates in Your Assigned Scope'}</h3>
+              <h3>{myScopeGroups.length === 0 && _props.user.role === 'Developer' ? 'No Gates Found' : 'No Gates in Your Assigned Scope'}</h3>
               <p>
-                {_props.user.role === 'Developer'
+                {myScopeGroups.length === 0 && _props.user.role === 'Developer'
                   ? 'Get started by creating your first Level Crossing Gate.'
                   : 'You have not been assigned to any Scope Groups containing LC Gates yet. Please contact your system administrator or developer.'}
               </p>

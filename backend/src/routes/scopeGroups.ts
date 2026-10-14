@@ -12,17 +12,7 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
   try {
     const isDeveloper = req.user?.role === 'Developer';
     
-    if (isDeveloper) {
-      const allGroups = await prisma.scopeGroup.findMany({
-        select: { id: true, name: true, color: true }
-      });
-      return res.json({
-        isDeveloper: true,
-        scopeGroups: allGroups,
-        allAccess: true
-      });
-    }
-
+    // Check actual assigned scope groups for this user
     const userScopeRecords = await prisma.scopeGroupUser.findMany({
       where: { userId: req.user!.id },
       include: {
@@ -36,7 +26,7 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
       }
     });
 
-    const scopeGroups = userScopeRecords.map(r => ({
+    const assignedGroups = userScopeRecords.map(r => ({
       id: r.scopeGroup.id,
       name: r.scopeGroup.name,
       color: r.scopeGroup.color,
@@ -49,11 +39,37 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
       r.scopeGroup.gates.forEach(g => gateIdSet.add(g.gateId));
     });
 
+    // If user has assigned scope groups, they MUST be returned regardless of role
+    if (assignedGroups.length > 0) {
+      return res.json({
+        isDeveloper,
+        scopeGroups: assignedGroups,
+        accessibleGateIds: Array.from(gateIdSet),
+        allAccess: false,
+        hasAssignedScopes: true
+      });
+    }
+
+    // If Developer has NO specific scope groups assigned, they have full access
+    if (isDeveloper) {
+      const allGroups = await prisma.scopeGroup.findMany({
+        select: { id: true, name: true, color: true }
+      });
+      return res.json({
+        isDeveloper: true,
+        scopeGroups: allGroups,
+        allAccess: true,
+        hasAssignedScopes: false
+      });
+    }
+
+    // Regular user with no assigned scopes
     res.json({
       isDeveloper: false,
-      scopeGroups,
-      accessibleGateIds: Array.from(gateIdSet),
-      allAccess: false
+      scopeGroups: [],
+      accessibleGateIds: [],
+      allAccess: false,
+      hasAssignedScopes: false
     });
   } catch (error) {
     next(error);

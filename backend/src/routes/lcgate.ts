@@ -65,44 +65,64 @@ router.post('/', authenticate, async (req, res, next) => {
   }
 });
 
-// Get all LC Gates with their masters (scoped for non-developers)
+// Get all LC Gates with their masters (strictly scoped to assigned scope groups)
 router.get('/', authenticate, async (req: any, res, next) => {
   try {
     const isDeveloper = req.user?.role === 'Developer';
+
+    // 1. Fetch user's assigned scope groups
+    const userScopes = await prisma.scopeGroupUser.findMany({
+      where: { userId: req.user.id },
+      select: { scopeGroupId: true }
+    });
+    const assignedScopeGroupIds = userScopes.map(s => s.scopeGroupId);
+
     let whereClause: any = {};
 
-    if (isDeveloper) {
-      if (req.query.scopeGroupId) {
-        const scopeGroupId = parseInt(req.query.scopeGroupId as string, 10);
-        if (!isNaN(scopeGroupId)) {
-          whereClause = {
-            scopeGroups: {
-              some: { scopeGroupId }
-            }
-          };
-        }
-      }
-    } else {
-      // Non-developer: check user's assigned scope groups
-      const userScopes = await prisma.scopeGroupUser.findMany({
-        where: { userId: req.user.id },
-        select: { scopeGroupId: true }
-      });
+    if (assignedScopeGroupIds.length > 0) {
+      // User is explicitly assigned to Scope Group(s)!
+      // They MUST ONLY see gates belonging to their assigned scope group(s)
+      let targetScopeIds = assignedScopeGroupIds;
 
-      const scopeGroupIds = userScopes.map(s => s.scopeGroupId);
-
-      // If user has no scope groups assigned, return empty list
-      if (scopeGroupIds.length === 0) {
-        return res.json([]);
-      }
-
-      whereClause = {
-        scopeGroups: {
-          some: {
-            scopeGroupId: { in: scopeGroupIds }
+      // Developer option to switch between scopes or view all
+      if (isDeveloper && req.query.scopeGroupId) {
+        if (req.query.scopeGroupId === 'all') {
+          targetScopeIds = [];
+        } else {
+          const paramId = parseInt(req.query.scopeGroupId as string, 10);
+          if (!isNaN(paramId)) {
+            targetScopeIds = [paramId];
           }
         }
-      };
+      }
+
+      if (targetScopeIds.length > 0) {
+        whereClause = {
+          scopeGroups: {
+            some: {
+              scopeGroupId: { in: targetScopeIds }
+            }
+          }
+        };
+      }
+    } else {
+      // User has NO scope groups assigned
+      if (isDeveloper) {
+        // Developer with no specific scope assigned has global access
+        if (req.query.scopeGroupId && req.query.scopeGroupId !== 'all') {
+          const paramId = parseInt(req.query.scopeGroupId as string, 10);
+          if (!isNaN(paramId)) {
+            whereClause = {
+              scopeGroups: {
+                some: { scopeGroupId: paramId }
+              }
+            };
+          }
+        }
+      } else {
+        // Non-developer with no scope assigned sees NO gates
+        return res.json([]);
+      }
     }
 
     const gates = await prisma.lCGate.findMany({

@@ -733,16 +733,16 @@ export default function Dashboard({ user, onLogout }: Props) {
                   <div style={{ display: 'flex', flexDirection: 'column', gridColumn: '1 / -1' }}>
                     <span className="text-muted" style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: 4 }}>ASSIGNED SCOPE GROUPS</span>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {user.role === 'Developer' ? (
-                        <span className="badge" style={{ backgroundColor: 'var(--primary)', color: 'white' }}>
-                          Full Access (Developer Mode)
-                        </span>
-                      ) : (profileData?.scopeGroups && profileData.scopeGroups.length > 0) ? (
+                      {(profileData?.scopeGroups && profileData.scopeGroups.length > 0) ? (
                         profileData.scopeGroups.map((sg: any) => (
                           <span key={sg.id} className="badge" style={{ backgroundColor: sg.color || '#0B3C7A', color: 'white' }}>
                             {sg.name}
                           </span>
                         ))
+                      ) : user.role === 'Developer' ? (
+                        <span className="badge" style={{ backgroundColor: 'var(--primary)', color: 'white' }}>
+                          Full Access (Developer Mode)
+                        </span>
                       ) : (
                         <span style={{ fontSize: '0.88rem', color: '#94a3b8' }}>No scope groups assigned</span>
                       )}
