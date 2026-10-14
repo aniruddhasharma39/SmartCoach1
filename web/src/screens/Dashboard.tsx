@@ -13,6 +13,7 @@ import RegistrationBuilder from './RegistrationBuilder';
 import Branding from './Branding';
 import ClusterDashboard from './Cluster/ClusterDashboard';
 import ManageUsers from './ManageUsers';
+import ScopeGroupManagement from './ScopeGroups/ScopeGroupManagement';
 import { API_URL } from '../config';
 
 type Props = {
@@ -23,6 +24,7 @@ type Props = {
 const CANONICAL_MODULE_ORDER = [
   'branding',
   'cluster',
+  'scope-groups',
   'manage-users',
   'registration',
   'roles',
@@ -31,6 +33,7 @@ const CANONICAL_MODULE_ORDER = [
 const DEFAULT_SYSTEM_MODULES = [
   { name: 'Branding', slug: 'branding' },
   { name: 'Cluster', slug: 'cluster' },
+  { name: 'Scope Groups', slug: 'scope-groups' },
   { name: 'Manage Users', slug: 'manage-users' },
   { name: 'Registration Builder', slug: 'registration' },
   { name: 'Roles', slug: 'roles' },
@@ -51,6 +54,7 @@ const sortModules = (modules: any[]) => {
 
 const getSidebarModuleIcon = (name: string, slug?: string) => {
   const key = (slug || name).toLowerCase();
+  if (key.includes('scope') || key.includes('group')) return FaLayerGroup;
   if (key.includes('cluster') || key.includes('gate') || key.includes('device') || key.includes('barrier')) return FaMicrochip;
   if (key.includes('user') || key.includes('member') || key.includes('staff')) return FaUsers;
   if (key.includes('role') || key.includes('permission') || key.includes('access')) return FaShieldAlt;
@@ -602,7 +606,7 @@ export default function Dashboard({ user, onLogout }: Props) {
           {currentView === 'registration' && <RegistrationBuilder />}
           {currentView === 'branding' && <Branding user={user} />}
           {currentView === 'cluster' && <ClusterDashboard user={user} />}
-          
+          {currentView === 'scope-groups' && <ScopeGroupManagement user={user} />}
           {currentView === 'manage-users' && <ManageUsers user={user} onUserUpdate={fetchNotifications} />}
 
           {currentView === 'home' && (
@@ -612,7 +616,7 @@ export default function Dashboard({ user, onLogout }: Props) {
             </div>
           )}
 
-          {!['roles', 'registration', 'branding', 'cluster', 'manage-users', 'home'].includes(currentView) && (() => {
+          {!['roles', 'registration', 'branding', 'cluster', 'scope-groups', 'manage-users', 'home'].includes(currentView) && (() => {
             const currentMod = systemModules.find(m => m.slug === currentView);
             const FallbackIcon = getSidebarModuleIcon(currentMod?.name || '', currentView);
             return (
@@ -725,6 +729,24 @@ export default function Dashboard({ user, onLogout }: Props) {
                     <strong style={{ fontSize: '0.95rem', color: '#1e293b' }}>
                       {profileData?.createdAt ? new Date(profileData.createdAt).toLocaleDateString() : 'N/A'}
                     </strong>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gridColumn: '1 / -1' }}>
+                    <span className="text-muted" style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: 4 }}>ASSIGNED SCOPE GROUPS</span>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {user.role === 'Developer' ? (
+                        <span className="badge" style={{ backgroundColor: 'var(--primary)', color: 'white' }}>
+                          Full Access (Developer Mode)
+                        </span>
+                      ) : (profileData?.scopeGroups && profileData.scopeGroups.length > 0) ? (
+                        profileData.scopeGroups.map((sg: any) => (
+                          <span key={sg.id} className="badge" style={{ backgroundColor: sg.color || '#0B3C7A', color: 'white' }}>
+                            {sg.name}
+                          </span>
+                        ))
+                      ) : (
+                        <span style={{ fontSize: '0.88rem', color: '#94a3b8' }}>No scope groups assigned</span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

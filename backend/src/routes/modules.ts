@@ -6,7 +6,7 @@ const router = Router();
 
 router.use(authenticate);
 
-const CANONICAL_ORDER = ['branding', 'cluster', 'manage-users', 'registration', 'roles'];
+const CANONICAL_ORDER = ['branding', 'cluster', 'scope-groups', 'manage-users', 'registration', 'roles'];
 
 router.get('/', async (req, res, next) => {
   try {

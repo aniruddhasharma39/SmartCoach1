@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FaArchway, FaMapMarkerAlt, FaCogs, FaCamera, FaSun, 
   FaBolt, FaPlug, FaCheckCircle, FaSearchPlus, FaTimes, FaRedo, FaTrash,
-  FaFilter, FaChevronDown, FaChevronUp
+  FaFilter, FaChevronDown, FaChevronUp, FaLayerGroup, FaShieldAlt
 } from 'react-icons/fa';
 import type { User } from '../../types';
 import './ClusterDashboard.css';
@@ -54,6 +54,11 @@ export default function ClusterDashboard(_props: Props) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
+  // Scope Groups State
+  const [developerScopeId, setDeveloperScopeId] = useState('');
+  const [allScopeGroupsList, setAllScopeGroupsList] = useState<any[]>([]);
+  const [myScopeGroups, setMyScopeGroups] = useState<any[]>([]);
+
   const fetchReferenceData = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/lcgate/reference-data`, { headers: authHeaders() });
@@ -67,11 +72,33 @@ export default function ClusterDashboard(_props: Props) {
     }
   };
 
-  const fetchGates = async () => {
+  const fetchScopeData = async () => {
+    try {
+      if (_props.user.role === 'Developer') {
+        const res = await fetch(`${API_URL}/api/v1/scope-groups`, { headers: authHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          setAllScopeGroupsList(Array.isArray(data) ? data : []);
+        }
+      } else {
+        const res = await fetch(`${API_URL}/api/v1/scope-groups/my-scope`, { headers: authHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          setMyScopeGroups(data.scopeGroups || []);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load scope data', e);
+    }
+  };
+
+  const fetchGates = async (overrideScopeId?: string) => {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(`${API_URL}/api/v1/lcgate`, {
+      const activeScope = overrideScopeId !== undefined ? overrideScopeId : developerScopeId;
+      const query = activeScope ? `?scopeGroupId=${encodeURIComponent(activeScope)}` : '';
+      const res = await fetch(`${API_URL}/api/v1/lcgate${query}`, {
         headers: authHeaders()
       });
       if (res.ok) {
@@ -98,6 +125,7 @@ export default function ClusterDashboard(_props: Props) {
   useEffect(() => {
     fetchGates();
     fetchReferenceData();
+    fetchScopeData();
   }, []);
 
   const divisionOptions = useMemo(() => {
@@ -185,6 +213,28 @@ export default function ClusterDashboard(_props: Props) {
             </div>
 
             <div className="cluster-header-actions">
+              {/* Developer Scope Selector */}
+              {_props.user.role === 'Developer' && allScopeGroupsList.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 8, padding: '4px 10px' }}>
+                  <FaLayerGroup size={13} style={{ color: 'var(--primary)' }} />
+                  <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#334155' }}>Scope View:</span>
+                  <select
+                    value={developerScopeId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDeveloperScopeId(val);
+                      fetchGates(val);
+                    }}
+                    style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '0.82rem', fontWeight: 600, color: 'var(--primary)', cursor: 'pointer' }}
+                  >
+                    <option value="">All Gates (Unrestricted)</option>
+                    {allScopeGroupsList.map(sg => (
+                      <option key={sg.id} value={sg.id}>{sg.name} ({sg._count?.gates || sg.gates?.length || 0} gates)</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Filter Toggle Button */}
               <button
                 type="button"
@@ -323,15 +373,38 @@ export default function ClusterDashboard(_props: Props) {
             </div>
           )}
 
+          {/* Active Scope Banner for non-developers */}
+          {_props.user.role !== 'Developer' && myScopeGroups.length > 0 && (
+            <div style={{ margin: '0 0 16px 0', padding: '10px 16px', background: 'rgba(11, 60, 122, 0.05)', border: '1px solid rgba(11, 60, 122, 0.15)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FaLayerGroup style={{ color: 'var(--primary)' }} />
+                <span style={{ fontSize: '0.88rem', color: '#1e293b' }}>
+                  <strong>Assigned Scope:</strong> {myScopeGroups.map(s => s.name).join(', ')}
+                </span>
+              </div>
+              <span className="badge" style={{ backgroundColor: 'var(--primary)', color: 'white', fontSize: '0.75rem' }}>
+                {visibleGates.length} {visibleGates.length === 1 ? 'Gate Accessible' : 'Gates Accessible'}
+              </span>
+            </div>
+          )}
+
           {loading ? (
             <div className="spinner-container"><div className="spinner"></div></div>
           ) : gates.length === 0 ? (
             <div className="empty-state glass-card">
               <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                <FaArchway size={48} color="#64748b" />
+                {_props.user.role === 'Developer' ? (
+                  <FaArchway size={48} color="#64748b" />
+                ) : (
+                  <FaShieldAlt size={48} color="#0B3C7A" />
+                )}
               </div>
-              <h3>No Gates Found</h3>
-              <p>Get started by creating your first Level Crossing Gate.</p>
+              <h3>{_props.user.role === 'Developer' ? 'No Gates Found' : 'No Gates in Your Assigned Scope'}</h3>
+              <p>
+                {_props.user.role === 'Developer'
+                  ? 'Get started by creating your first Level Crossing Gate.'
+                  : 'You have not been assigned to any Scope Groups containing LC Gates yet. Please contact your system administrator or developer.'}
+              </p>
             </div>
           ) : visibleGates.length === 0 ? (
             <div className="empty-state glass-card">

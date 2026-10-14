@@ -565,6 +565,11 @@ router.get('/me', authenticate, async (req: any, res, next) => {
               include: { module: true }
             }
           }
+        },
+        scopeGroups: {
+          include: {
+            scopeGroup: true
+          }
         }
       }
     });
@@ -579,6 +584,13 @@ router.get('/me', authenticate, async (req: any, res, next) => {
       allowedModules = allModules.map((m: any) => m.slug);
     }
 
+    const scopeGroups = user.scopeGroups?.map((sg: any) => ({
+      id: sg.scopeGroup.id,
+      name: sg.scopeGroup.name,
+      color: sg.scopeGroup.color,
+      description: sg.scopeGroup.description
+    })) || [];
+
     res.json({
       id: user.id,
       fullName: user.fullName,
@@ -590,7 +602,8 @@ router.get('/me', authenticate, async (req: any, res, next) => {
       metadata: user.metadata,
       createdAt: user.createdAt,
       status: user.status,
-      allowedModules
+      allowedModules,
+      scopeGroups
     });
   } catch (error) {
     next(error);

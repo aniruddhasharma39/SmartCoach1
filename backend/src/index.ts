@@ -10,7 +10,9 @@ import settingsRoutes from './routes/settings';
 import lcgateRoutes from './routes/lcgate';
 import evidenceRoutes from './routes/evidence';
 import notificationsRoutes from './routes/notifications';
+import scopeGroupsRoutes from './routes/scopeGroups';
 import { errorHandler } from './middleware/error';
+import { prisma } from './lib/prisma';
 
 import path from 'path';
 
@@ -43,10 +45,25 @@ app.use('/api/v1/branding', settingsRoutes);
 app.use('/api/v1/lcgate', lcgateRoutes);
 app.use('/api/v1/evidence', evidenceRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
+app.use('/api/v1/scope-groups', scopeGroupsRoutes);
 
 // Error Handling
 app.use(errorHandler);
 
+// Ensure system modules exist
+const ensureSystemModules = async () => {
+  try {
+    await prisma.module.upsert({
+      where: { slug: 'scope-groups' },
+      update: {},
+      create: { name: 'Scope Groups', slug: 'scope-groups' }
+    });
+  } catch (err) {
+    console.error('Failed to ensure scope-groups module:', err);
+  }
+};
+
 app.listen(port, () => {
+  ensureSystemModules();
   console.log(`Server is running on port ${port}`);
 });

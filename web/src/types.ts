@@ -10,6 +10,45 @@ export type User = {
   createdAt?: string;
   status?: string;
   allowedModules: string[];
+  scopeGroups?: {
+    id: number;
+    name: string;
+    color?: string | null;
+    description?: string | null;
+  }[];
+};
+
+export type ScopeGroupItem = {
+  id: number;
+  name: string;
+  description?: string | null;
+  color?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  _count?: {
+    gates: number;
+    users: number;
+  };
+  gates?: {
+    gate: {
+      id: number;
+      name?: string | null;
+      lcNumber: string;
+      locationName: string;
+      zone?: string | null;
+      division?: string | null;
+    };
+  }[];
+  users?: {
+    user: {
+      id: number;
+      fullName: string;
+      email: string;
+      mobile?: string | null;
+      department?: string | null;
+      role?: { id: number; name: string } | null;
+    };
+  }[];
 };
 
 export type NotificationItem = {

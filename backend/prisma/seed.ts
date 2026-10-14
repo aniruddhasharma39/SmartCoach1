@@ -18,6 +18,7 @@ async function main() {
     { name: 'Registration Builder', slug: 'registration' },
     { name: 'Branding', slug: 'branding' },
     { name: 'Cluster', slug: 'cluster' },
+    { name: 'Scope Groups', slug: 'scope-groups' },
   ];
 
   console.log('Seeding modules...');

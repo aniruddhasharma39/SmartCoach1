@@ -11,7 +11,13 @@ router.use(authenticate);
 router.get('/', requireModule('manage-users'), async (req, res, next) => {
   try {
     const users = await prisma.user.findMany({
-      include: { role: true, requestedRole: true },
+      include: {
+        role: true,
+        requestedRole: true,
+        scopeGroups: {
+          include: { scopeGroup: true }
+        }
+      },
       orderBy: { createdAt: 'desc' }
     });
     

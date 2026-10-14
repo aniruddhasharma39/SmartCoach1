@@ -38,6 +38,7 @@ model User {
   auditLogs           AuditLog[]
   metadata            String?    // JSON string for dynamic registration fields
   evidences           InstallationEvidence[]
+  scopeGroups         ScopeGroupUser[]
 }
 
 model RefreshToken {
@@ -117,6 +118,7 @@ model LCGate {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   masters      MasterUnit[]
+  scopeGroups  ScopeGroupGate[]
 }
 
 model MasterUnit {
@@ -170,6 +172,46 @@ model OtpVerification {
   createdAt  DateTime @default(now())
 
   @@index([identifier, type])
+}
+
+model ScopeGroup {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  description String?
+  color       String?          @default("#0B3C7A")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  gates       ScopeGroupGate[]
+  users       ScopeGroupUser[]
+}
+
+model ScopeGroupGate {
+  id           Int        @id @default(autoincrement())
+  scopeGroupId Int
+  scopeGroup   ScopeGroup @relation(fields: [scopeGroupId], references: [id], onDelete: Cascade)
+  gateId       Int
+  gate         LCGate     @relation(fields: [gateId], references: [id], onDelete: Cascade)
+
+  assignedAt   DateTime   @default(now())
+
+  @@unique([scopeGroupId, gateId])
+  @@index([scopeGroupId])
+  @@index([gateId])
+}
+
+model ScopeGroupUser {
+  id           Int        @id @default(autoincrement())
+  scopeGroupId Int
+  scopeGroup   ScopeGroup @relation(fields: [scopeGroupId], references: [id], onDelete: Cascade)
+  userId       Int
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  assignedAt   DateTime   @default(now())
+
+  @@unique([scopeGroupId, userId])
+  @@index([scopeGroupId])
+  @@index([userId])
 }
 
 

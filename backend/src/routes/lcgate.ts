@@ -65,12 +65,57 @@ router.post('/', authenticate, async (req, res, next) => {
   }
 });
 
-// Get all LC Gates with their masters
-router.get('/', authenticate, async (req, res, next) => {
+// Get all LC Gates with their masters (scoped for non-developers)
+router.get('/', authenticate, async (req: any, res, next) => {
   try {
+    const isDeveloper = req.user?.role === 'Developer';
+    let whereClause: any = {};
+
+    if (isDeveloper) {
+      if (req.query.scopeGroupId) {
+        const scopeGroupId = parseInt(req.query.scopeGroupId as string, 10);
+        if (!isNaN(scopeGroupId)) {
+          whereClause = {
+            scopeGroups: {
+              some: { scopeGroupId }
+            }
+          };
+        }
+      }
+    } else {
+      // Non-developer: check user's assigned scope groups
+      const userScopes = await prisma.scopeGroupUser.findMany({
+        where: { userId: req.user.id },
+        select: { scopeGroupId: true }
+      });
+
+      const scopeGroupIds = userScopes.map(s => s.scopeGroupId);
+
+      // If user has no scope groups assigned, return empty list
+      if (scopeGroupIds.length === 0) {
+        return res.json([]);
+      }
+
+      whereClause = {
+        scopeGroups: {
+          some: {
+            scopeGroupId: { in: scopeGroupIds }
+          }
+        }
+      };
+    }
+
     const gates = await prisma.lCGate.findMany({
+      where: whereClause,
       orderBy: { createdAt: 'desc' },
       include: {
+        scopeGroups: {
+          include: {
+            scopeGroup: {
+              select: { id: true, name: true, color: true }
+            }
+          }
+        },
         masters: {
           orderBy: { masterSequence: 'asc' },
           include: {

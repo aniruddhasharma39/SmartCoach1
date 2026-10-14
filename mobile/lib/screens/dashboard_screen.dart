@@ -10,6 +10,7 @@ import 'branding_screen.dart';
 import 'registration_builder_screen.dart';
 import 'cluster/cluster_main_screen.dart';
 import 'profile_screen.dart';
+import 'scope_groups/scope_groups_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Map<String, dynamic> user;
@@ -23,6 +24,7 @@ class DashboardScreen extends StatefulWidget {
 const List<String> _canonicalModuleOrder = [
   'branding',
   'cluster',
+  'scope-groups',
   'manage-users',
   'registration',
   'roles',
@@ -31,6 +33,7 @@ const List<String> _canonicalModuleOrder = [
 const List<Map<String, String>> _defaultModules = [
   {'name': 'Branding', 'slug': 'branding'},
   {'name': 'Cluster', 'slug': 'cluster'},
+  {'name': 'Scope Groups', 'slug': 'scope-groups'},
   {'name': 'Manage Users', 'slug': 'manage-users'},
   {'name': 'Registration Builder', 'slug': 'registration'},
   {'name': 'Roles', 'slug': 'roles'},
@@ -43,6 +46,8 @@ String _getModuleTitle(dynamic m) {
       return 'Branding';
     case 'cluster':
       return 'Cluster';
+    case 'scope-groups':
+      return 'Scope Groups';
     case 'manage-users':
       return 'Manage Users';
     case 'registration':
@@ -728,6 +733,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         case 'branding': return Icons.brush;
         case 'registration': return Icons.build;
         case 'cluster': return Icons.device_hub;
+        case 'scope-groups': return Icons.layers;
         default: return Icons.extension;
       }
     }
@@ -950,6 +956,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (_currentView == 'branding') return BrandingScreen(user: widget.user);
     if (_currentView == 'registration') return RegistrationBuilderScreen(user: widget.user);
     if (_currentView == 'cluster') return const ClusterMainScreen();
+    if (_currentView == 'scope-groups') return ScopeGroupsScreen(user: widget.user);
     
     return Center(child: Text('Module $_currentView not implemented yet.'));
   }

@@ -27,6 +27,7 @@ import {
   FaExclamationTriangle,
   FaSpinner,
   FaFilter,
+  FaLayerGroup,
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
@@ -935,6 +936,30 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
                                       </span>
                                     )}
                                   </div>
+
+                                  {/* Assigned Scope Groups */}
+                                  {u.scopeGroups && u.scopeGroups.length > 0 && (
+                                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                                      {u.scopeGroups.map((sg: any) => (
+                                        <span
+                                          key={sg.scopeGroup?.id || sg.id}
+                                          className="badge"
+                                          style={{
+                                            backgroundColor: sg.scopeGroup?.color || 'var(--primary)',
+                                            color: 'white',
+                                            fontSize: '0.72rem',
+                                            padding: '2px 8px',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 4
+                                          }}
+                                        >
+                                          <FaLayerGroup size={10} />
+                                          {sg.scopeGroup?.name || sg.name}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
 

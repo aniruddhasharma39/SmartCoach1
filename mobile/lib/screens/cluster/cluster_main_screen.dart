@@ -20,6 +20,7 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
   List<dynamic> _gates = [];
   bool _isLoading = true;
   String _token = '';
+  List<String> _scopeNames = [];
 
   // Zone/Division reference data
   List<String> _zones = RailwayData.zones;
@@ -55,6 +56,28 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
     setState(() => _token = token);
     await _fetchGates();
     await _fetchReferenceData();
+    await _fetchMyScope();
+  }
+
+  Future<void> _fetchMyScope() async {
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/scope-groups/my-scope'),
+        headers: {'Authorization': 'Bearer $_token'},
+      );
+      if (res.statusCode == 200) {
+        final data = json.decode(res.body);
+        if (data is Map && data['scopeGroups'] is List) {
+          final list = (data['scopeGroups'] as List)
+              .map((g) => (g['name'] ?? '').toString())
+              .where((s) => s.isNotEmpty)
+              .toList();
+          if (mounted) setState(() => _scopeNames = list);
+        }
+      }
+    } catch (e) {
+      print('Error fetching scope groups: $e');
+    }
   }
 
   Future<void> _fetchReferenceData() async {
@@ -429,7 +452,29 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
         child: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _gates.isEmpty
-              ? const Center(child: Text('No LC Gates found. Create one!', style: TextStyle(color: Colors.grey, fontSize: 16)))
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.shield_outlined, size: 56, color: Colors.grey.shade400),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No Gates in Your Assigned Scope',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF1E293B)),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'You have not been assigned to any Scope Groups containing LC Gates yet. Please contact your system administrator.',
+                          style: TextStyle(color: Colors.grey.shade600, fontSize: 13.5, height: 1.4),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                )
               : filtered.isEmpty
                   ? Center(
                       child: Column(
@@ -445,9 +490,45 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
                     )
                   : ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: filtered.length,
+                      itemCount: filtered.length + (_scopeNames.isNotEmpty ? 1 : 0),
                       itemBuilder: (context, index) {
-                        final gate = filtered[index];
+                        if (_scopeNames.isNotEmpty && index == 0) {
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 14),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF0B3C7A).withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF0B3C7A).withOpacity(0.18)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.layers, size: 18, color: Color(0xFF0B3C7A)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Scope: ${_scopeNames.join(", ")}',
+                                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF0B3C7A)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0B3C7A),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${filtered.length} ${filtered.length == 1 ? "Gate" : "Gates"}',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        }
+                        final gateIndex = _scopeNames.isNotEmpty ? index - 1 : index;
+                        final gate = filtered[gateIndex];
                         final masters = gate['masters'] as List? ?? [];
                         final deviceCount = masters.fold<int>(0, (sum, m) => sum + ((m['childDevices'] as List?)?.length ?? 0));
                         final zone = (gate['zone'] as String?) ?? '';
