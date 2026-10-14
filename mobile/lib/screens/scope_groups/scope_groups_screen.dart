@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config.dart';
 import '../../main.dart';
+import '../../utils/app_feedback.dart';
 import 'create_edit_scope_group_screen.dart';
 
 Color parseHexColor(String? hexString) {
@@ -55,8 +56,8 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
     await _fetchScopeGroups();
   }
 
-  Future<void> _fetchScopeGroups() async {
-    setState(() => _isLoading = true);
+  Future<void> _fetchScopeGroups({bool isManual = false}) async {
+    if (!isManual) setState(() => _isLoading = true);
     try {
       // 1. Fetch live permission & assigned status from /my-scope
       try {
@@ -85,21 +86,23 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
             _scopeGroups = data is List ? data : [];
             _isLoading = false;
           });
+          if (isManual) {
+            AppFeedback.showSuccess(context, 'Scope groups refreshed.');
+          }
         }
       } else {
         if (mounted) {
           setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to load scope groups (${res.statusCode})')),
+          AppFeedback.showError(
+            context,
+            'Failed to load scope groups (HTTP ${res.statusCode}).',
           );
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading scope groups: $e')),
-        );
+        AppFeedback.showError(context, 'Error loading scope groups: $e');
       }
     }
   }
@@ -111,6 +114,7 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
         builder: (_) => CreateEditScopeGroupScreen(token: _token),
       ),
     );
+    if (!mounted) return;
     if (result == true) {
       _fetchScopeGroups();
     }
@@ -126,18 +130,20 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
         ),
       ),
     );
+    if (!mounted) return;
     if (result == true) {
       _fetchScopeGroups();
     }
   }
 
   void _confirmDeleteGroup(Map<String, dynamic> group) {
+    final groupName = (group['name'] ?? 'Scope Group').toString();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Scope Group?'),
+        title: Text('Delete Scope Group "$groupName"?'),
         content: Text(
-          'Are you sure you want to delete "${group['name']}"? All associated gate and user assignments will be unlinked.',
+          'Are you sure you want to delete "$groupName"? All associated gate and user assignments will be unlinked.',
         ),
         actions: [
           TextButton(
@@ -151,7 +157,7 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
             ),
             onPressed: () async {
               Navigator.pop(ctx);
-              await _deleteGroup(group['id']);
+              await _deleteGroup(group['id'], groupName);
             },
             child: const Text('Delete'),
           ),
@@ -160,7 +166,7 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
     );
   }
 
-  Future<void> _deleteGroup(dynamic id) async {
+  Future<void> _deleteGroup(dynamic id, String groupName) async {
     setState(() => _isLoading = true);
     try {
       final res = await http.delete(
@@ -169,25 +175,22 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
       );
       if (res.statusCode == 200 || res.statusCode == 204) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Scope group deleted successfully'), backgroundColor: AppColors.success),
-        );
+        AppFeedback.showSuccess(context, 'Scope group "$groupName" deleted successfully.');
         _fetchScopeGroups();
       } else {
-        final data = json.decode(res.body);
-        final err = data['error'] ?? 'Failed to delete scope group';
+        String err = 'Failed to delete scope group';
+        try {
+          final data = json.decode(res.body);
+          if (data['error'] != null) err = data['error'];
+        } catch (_) {}
         if (!mounted) return;
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err), backgroundColor: AppColors.danger),
-        );
+        AppFeedback.showError(context, err);
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.danger),
-      );
+      AppFeedback.showError(context, 'Network error deleting scope group: $e');
     }
   }
 
@@ -246,7 +249,7 @@ class _ScopeGroupsScreenState extends State<ScopeGroupsScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _fetchScopeGroups,
+              onRefresh: () => _fetchScopeGroups(isManual: true),
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
@@ -829,10 +832,10 @@ class _GateDevicesDetailPageState extends State<GateDevicesDetailPage> {
     _fetchLatestGateData();
   }
 
-  Future<void> _fetchLatestGateData() async {
+  Future<void> _fetchLatestGateData({bool isManual = false}) async {
     final gateId = _gate['id'];
     if (gateId == null) return;
-    setState(() => _isLoading = true);
+    if (!isManual) setState(() => _isLoading = true);
     try {
       final res = await http.get(
         Uri.parse('$baseUrl/lcgate/$gateId'),
@@ -845,12 +848,25 @@ class _GateDevicesDetailPageState extends State<GateDevicesDetailPage> {
             _gate = data;
             _isLoading = false;
           });
+          if (isManual) {
+            AppFeedback.showSuccess(context, 'Gate telemetry & devices refreshed.');
+          }
         }
       } else {
-        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+          if (isManual) {
+            AppFeedback.showError(context, 'Failed to refresh gate telemetry (HTTP ${res.statusCode}).');
+          }
+        }
       }
-    } catch (_) {
-      if (mounted) setState(() => _isLoading = false);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        if (isManual) {
+          AppFeedback.showError(context, 'Error updating gate telemetry: $e');
+        }
+      }
     }
   }
 
@@ -864,10 +880,19 @@ class _GateDevicesDetailPageState extends State<GateDevicesDetailPage> {
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0F172A),
         elevation: 1,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh Telemetry',
+            onPressed: () => _fetchLatestGateData(isManual: true),
+          ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : RefreshIndicator(
+              onRefresh: () => _fetchLatestGateData(isManual: true),
+              child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
                 // Gate Header Card
@@ -1078,6 +1103,7 @@ class _GateDevicesDetailPageState extends State<GateDevicesDetailPage> {
                   }),
               ],
             ),
+          ),
     );
   }
 }

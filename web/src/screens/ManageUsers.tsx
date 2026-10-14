@@ -11,8 +11,6 @@ import {
   FaSearchPlus,
   FaTimes,
   FaCheck,
-  FaCheckCircle,
-  FaTimesCircle,
   FaPhone,
   FaEnvelope,
   FaIdBadge,
@@ -31,6 +29,7 @@ import {
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 import './ManageUsers.css';
 
 type Props = {
@@ -81,17 +80,18 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
   const [rejectModal, setRejectModal] = useState<{ id: number; name: string } | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [actionLoading, setActionLoading] = useState<{ id: number; action: string } | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'danger' | 'info' } | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Centralized Toast Hook
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
 
   // Selected roles for pending approvals map [requestId -> roleId]
   const [pendingRoleSelection, setPendingRoleSelection] = useState<Record<number, number>>({});
 
-  const showToast = (message: string, type: 'success' | 'danger' | 'info' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(prev => (prev?.message === message ? null : prev));
-    }, 3500);
+  const showToast = (message: string, type: 'success' | 'danger' | 'info' = 'success', title?: string) => {
+    if (type === 'danger') toastError(message, title);
+    else if (type === 'info') toastInfo(message, title);
+    else toastSuccess(message, title);
   };
 
   const fetchAllData = async () => {
@@ -149,9 +149,9 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
     try {
       await Promise.all([fetchAllData(), minDelay]);
       if (onUserUpdate) onUserUpdate();
-      showToast('User directory refreshed successfully!', 'info');
+      toastSuccess('User directory and pending approvals refreshed.', 'Directory Updated');
     } catch {
-      showToast('Failed to refresh user directory', 'danger');
+      toastError('Failed to refresh user directory. Check network connection.', 'Refresh Failed');
     } finally {
       setIsRefreshing(false);
     }
@@ -211,6 +211,7 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopiedKey(identifier);
+    toastInfo(`Copied "${text}" to clipboard!`, 'Copied');
     setTimeout(() => {
       setCopiedKey(prev => (prev === identifier ? null : prev));
     }, 2000);
@@ -230,17 +231,21 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
       });
 
       if (res.ok) {
-        showToast(`User "${userName}" has been ${action === 'deactivate' ? 'deactivated' : 'reactivated'} successfully!`, 'success');
+        if (action === 'deactivate') {
+          toastWarning(`User account "${userName}" has been deactivated.`, 'Account Deactivated');
+        } else {
+          toastSuccess(`User account "${userName}" has been reactivated successfully!`, 'Account Reactivated');
+        }
         setConfirmModal(null);
         await fetchAllData();
         if (onUserUpdate) onUserUpdate();
       } else {
         const err = await res.json().catch(() => ({}));
-        showToast(err.error || `Failed to ${action} user`, 'danger');
+        toastError(err.error || `Failed to ${action} user`, 'Action Failed');
       }
     } catch (err: any) {
       console.error(err);
-      showToast(err.message || `Network error during ${action}`, 'danger');
+      toastError(err.message || `Network error during ${action}`, 'Action Failed');
     } finally {
       setActionLoading(null);
     }
@@ -249,7 +254,7 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
   const handleApproveRequest = async (reqId: number, applicantName: string) => {
     const roleId = pendingRoleSelection[reqId] || roles[0]?.id;
     if (!roleId) {
-      showToast('Please select a role to assign before approving', 'danger');
+      toastWarning('Please select an operational role to assign before approving.', 'Role Required');
       return;
     }
 
@@ -266,16 +271,17 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
       });
 
       if (res.ok) {
-        showToast(`Registration approved for "${applicantName}"!`, 'success');
+        const assignedRole = roles.find(r => r.id === Number(roleId))?.name || 'Assigned Role';
+        toastSuccess(`Registration approved for "${applicantName}" as ${assignedRole}! User account is now active.`, 'Application Approved');
         await fetchAllData();
         if (onUserUpdate) onUserUpdate();
       } else {
         const err = await res.json().catch(() => ({}));
-        showToast(err.error || 'Failed to approve request', 'danger');
+        toastError(err.error || 'Failed to approve request', 'Approval Failed');
       }
     } catch (err: any) {
       console.error(err);
-      showToast(err.message || 'Error occurred while approving request', 'danger');
+      toastError(err.message || 'Error occurred while approving request', 'Approval Failed');
     } finally {
       setActionLoading(null);
     }
@@ -298,18 +304,19 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
       });
 
       if (res.ok) {
-        showToast(`Registration request for "${name}" rejected`, 'info');
+        const reasonMsg = rejectionReason.trim() ? ` (Reason: ${rejectionReason.trim()})` : '';
+        toastInfo(`Registration request for "${name}" has been rejected${reasonMsg}.`, 'Request Rejected');
         setRejectModal(null);
         setRejectionReason('');
         await fetchAllData();
         if (onUserUpdate) onUserUpdate();
       } else {
         const err = await res.json().catch(() => ({}));
-        showToast(err.error || 'Failed to reject request', 'danger');
+        toastError(err.error || 'Failed to reject request', 'Rejection Failed');
       }
     } catch (err: any) {
       console.error(err);
-      showToast(err.message || 'Error occurred while rejecting request', 'danger');
+      toastError(err.message || 'Error occurred while rejecting request', 'Rejection Failed');
     } finally {
       setActionLoading(null);
     }
@@ -461,32 +468,6 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
 
   return (
     <div className="manage-users-container">
-      {/* Toast Alert Banner */}
-      {toast && (
-        <div
-          style={{
-            position: 'fixed',
-            top: '20px',
-            right: '24px',
-            zIndex: 9999,
-            backgroundColor: toast.type === 'danger' ? '#ef4444' : toast.type === 'info' ? '#0284c7' : '#10b981',
-            color: '#ffffff',
-            padding: '0.85rem 1.4rem',
-            borderRadius: '12px',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.2)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.65rem',
-            fontWeight: 600,
-            fontSize: '0.9rem',
-            animation: 'modal-pop 0.2s ease',
-          }}
-        >
-          {toast.type === 'danger' ? <FaTimesCircle size={18} /> : <FaCheckCircle size={18} />}
-          <span>{toast.message}</span>
-        </div>
-      )}
-
       {/* Page Header */}
       <div className="manage-users-header">
         <div className="manage-users-title-group">
@@ -667,6 +648,7 @@ export default function ManageUsers({ user, onUserUpdate }: Props) {
               onClick={() => {
                 setSelectedRoleFilter('ALL');
                 setSelectedStatusFilter('ALL');
+                toastInfo('Active user filters cleared. Showing all records.', 'Filters Reset');
               }}
             >
               Clear All

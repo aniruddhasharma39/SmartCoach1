@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FaLightbulb, FaMobileAlt, FaEnvelope, FaExclamationTriangle, FaCheckCircle } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 
 type Props = {
   onLogin: (user: User, token: string) => void;
@@ -10,6 +11,8 @@ type Props = {
 };
 
 export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Props) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
+
   // Mode: standard password login vs OTP login / recovery
   const [mode, setMode] = useState<'password' | 'otp'>('password');
 
@@ -103,6 +106,14 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
     e.preventDefault();
     setError('');
     setSuccessMsg('');
+
+    if (!identifier.trim() || !password.trim()) {
+      const msg = 'Please enter your login identifier and password.';
+      setError(msg);
+      toastWarning(msg, 'Validation Required');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -121,6 +132,7 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
       onLogin(data.user, data.token);
     } catch (err: any) {
       setError(err.message);
+      toastError(err.message || 'Login failed. Please verify your credentials.', 'Authentication Failed');
     } finally {
       setLoading(false);
     }
@@ -138,12 +150,16 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
     if (otpTab === 'phone') {
       const digits = target.replace(/\D/g, '');
       if (!/^[6-9]\d{9}$/.test(digits)) {
-        setError('Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+        const msg = 'Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.';
+        setError(msg);
+        toastWarning(msg, 'Invalid Mobile Number');
         return;
       }
     } else {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) {
-        setError('Please enter a valid email address containing @ and domain.');
+        const msg = 'Please enter a valid email address containing @ and domain.';
+        setError(msg);
+        toastWarning(msg, 'Invalid Email Format');
         return;
       }
     }
@@ -170,12 +186,15 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
 
       setOtpSent(true);
       setCountdown(60);
-      setSuccessMsg(data.message || 'OTP sent successfully!');
+      const msg = data.message || `OTP dispatched successfully to ${target}!`;
+      setSuccessMsg(msg);
+      toastSuccess(msg, 'OTP Dispatched');
       if (data.demoOtp) {
         setDemoOtp(data.demoOtp);
       }
     } catch (err: any) {
       setError(err.message);
+      toastError(err.message || 'Failed to send OTP.', 'OTP Request Failed');
     } finally {
       setSendingOtp(false);
     }
@@ -188,17 +207,23 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
     setSuccessMsg('');
 
     if (!otpCode || otpCode.trim().length !== 6) {
-      setError('Please enter the 6-digit OTP code.');
+      const msg = 'Please enter the complete 6-digit OTP code.';
+      setError(msg);
+      toastWarning(msg, 'Incomplete Code');
       return;
     }
 
     if (wantsReset) {
       if (!newPassword || newPassword.length < 6) {
-        setError('New password must be at least 6 characters long.');
+        const msg = 'New password must be at least 6 characters long.';
+        setError(msg);
+        toastWarning(msg, 'Password Too Short');
         return;
       }
       if (newPassword !== confirmPassword) {
-        setError('New password and confirm password do not match.');
+        const msg = 'New password and confirm password do not match.';
+        setError(msg);
+        toastWarning(msg, 'Password Mismatch');
         return;
       }
     }
@@ -226,6 +251,7 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
       onLogin(data.user, data.token);
     } catch (err: any) {
       setError(err.message);
+      toastError(err.message || 'Failed to verify OTP. Please try again.', 'Verification Failed');
     } finally {
       setLoading(false);
     }
@@ -450,6 +476,7 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
                   setSuccessMsg('');
                   setSuggestion(null);
                   setMode('otp');
+                  toastInfo('Switched to OTP Verification & Password Recovery mode.', 'Mode Switched');
                 }}
               >
                 Forgot Password / Login with OTP →
@@ -615,19 +642,26 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
               <form onSubmit={handleVerifyOtp} className="flex-col gap-4 mt-2 fade-in">
                 {demoOtp && (
                   <div
+                    onClick={() => {
+                      setOtpCode(demoOtp);
+                      toastInfo(`Demo OTP ${demoOtp} autofilled into verification field!`, 'Autofilled');
+                    }}
                     style={{
                       backgroundColor: 'rgba(79, 70, 229, 0.08)',
                       border: '1px dashed var(--primary)',
-                      padding: '8px 12px',
+                      padding: '10px 14px',
                       borderRadius: '8px',
                       fontSize: '0.85rem',
                       display: 'flex',
                       justifyContent: 'space-between',
                       alignItems: 'center',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
                     }}
+                    title="Click to automatically fill this code"
                   >
-                    <span>Test OTP Code:</span>
-                    <strong style={{ letterSpacing: '2px', color: 'var(--primary)', fontSize: '1rem' }}>
+                    <span>Test OTP (Click to autofill):</span>
+                    <strong style={{ letterSpacing: '2px', color: 'var(--primary)', fontSize: '1.05rem' }}>
                       {demoOtp}
                     </strong>
                   </div>
@@ -770,6 +804,7 @@ export default function Login({ onLogin, onGoToRegister, sessionExpiredMsg }: Pr
                   setSuccessMsg('');
                   setSuggestion(null);
                   setOtpSent(false);
+                  toastInfo('Returned to standard password login.', 'Mode Switched');
                 }}
               >
                 ← Back to Password Login

@@ -15,6 +15,7 @@ import ClusterDashboard from './Cluster/ClusterDashboard';
 import ManageUsers from './ManageUsers';
 import ScopeGroupManagement from './ScopeGroups/ScopeGroupManagement';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 
 type Props = {
   user: User;
@@ -71,6 +72,7 @@ const getSidebarModuleIcon = (name: string, slug?: string) => {
 };
 
 export default function Dashboard({ user, onLogout }: Props) {
+  const { success: toastSuccess, info: toastInfo } = useToast();
   const [currentView, setCurrentView] = useState<string>('home');
   const [systemModules, setSystemModules] = useState<any[]>(DEFAULT_SYSTEM_MODULES);
   const [branding, setBranding] = useState({ appName: 'LC Platform' });
@@ -133,6 +135,7 @@ export default function Dashboard({ user, onLogout }: Props) {
     }
     setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     setUnreadCount(0);
+    toastSuccess('All notifications marked as read.', 'Notifications');
     try {
       await fetch(`${API_URL}/api/v1/notifications/read-all`, {
         method: 'POST',
@@ -154,6 +157,7 @@ export default function Dashboard({ user, onLogout }: Props) {
     }
     setNotifications([]);
     setUnreadCount(0);
+    toastInfo('Notification tray cleared.', 'Notifications');
     try {
       await fetch(`${API_URL}/api/v1/notifications/clear-all`, {
         method: 'POST',
@@ -174,6 +178,7 @@ export default function Dashboard({ user, onLogout }: Props) {
       setUnreadCount(filtered.filter(n => !n.isRead).length);
       return filtered;
     });
+    toastInfo('Notification removed from tray.', 'Notifications');
     try {
       await fetch(`${API_URL}/api/v1/notifications/${id}`, {
         method: 'DELETE',

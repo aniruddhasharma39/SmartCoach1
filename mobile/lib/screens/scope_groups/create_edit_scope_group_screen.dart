@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../config.dart';
 import '../../main.dart';
+import '../../utils/app_feedback.dart';
 import '../cluster/railway_data.dart';
 import 'scope_groups_screen.dart';
 
@@ -127,6 +128,9 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
       }
     } catch (e) {
       _errorMessage = 'Failed to load gates/users: $e';
+      if (mounted) {
+        AppFeedback.showError(context, 'Failed to load scope configuration data: $e');
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoadingData = false);
@@ -137,6 +141,7 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
   Future<void> _handleSave() async {
     if (!_formKey.currentState!.validate()) {
       _tabController.animateTo(0);
+      AppFeedback.showWarning(context, 'Please enter a valid scope group name.');
       return;
     }
 
@@ -145,8 +150,9 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
       _errorMessage = null;
     });
 
+    final groupName = _nameController.text.trim();
     final payload = {
-      'name': _nameController.text.trim(),
+      'name': groupName,
       'description': _descController.text.trim().isEmpty ? null : _descController.text.trim(),
       'color': _selectedColor,
       'gateIds': _selectedGateIds.toList(),
@@ -169,24 +175,30 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_isEdit ? 'Scope group updated successfully!' : 'Scope group created successfully!'),
-            backgroundColor: AppColors.success,
-          ),
+        final actionWord = _isEdit ? 'updated' : 'created';
+        final gateCount = _selectedGateIds.length;
+        final userCount = _selectedUserIds.length;
+        AppFeedback.showSuccess(
+          context,
+          'Scope group "$groupName" $actionWord with $gateCount gates and $userCount assigned users!',
         );
         Navigator.pop(context, true);
       } else {
-        final data = json.decode(response.body);
-        final err = data['error'] ?? 'Failed to save scope group (${response.statusCode})';
+        String err = 'Failed to save scope group (${response.statusCode})';
+        try {
+          final data = json.decode(response.body);
+          if (data['error'] != null) {
+            err = data['error'];
+          } else if (data['message'] != null) {
+            err = data['message'];
+          }
+        } catch (_) {}
         if (mounted) {
           setState(() {
             _errorMessage = err;
             _isSaving = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(err), backgroundColor: AppColors.danger),
-          );
+          AppFeedback.showError(context, err);
         }
       }
     } catch (e) {
@@ -195,9 +207,7 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
           _errorMessage = 'Network error: $e';
           _isSaving = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.danger),
-        );
+        AppFeedback.showError(context, 'Network error saving scope group: $e');
       }
     }
   }
@@ -582,6 +592,10 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
                                 if (g['id'] is int) _selectedGateIds.add(g['id']);
                               }
                             });
+                            AppFeedback.showInfo(
+                              context,
+                              'Selected ${filtered.length} matching gates.',
+                            );
                           },
                     child: const Text('Select All', style: TextStyle(fontSize: 12)),
                   ),
@@ -594,6 +608,10 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
                                 if (g['id'] is int) _selectedGateIds.remove(g['id']);
                               }
                             });
+                            AppFeedback.showInfo(
+                              context,
+                              'Cleared gate selections.',
+                            );
                           },
                     child: const Text('Clear', style: TextStyle(fontSize: 12, color: Colors.grey)),
                   ),
@@ -771,6 +789,10 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
                                 if (u['id'] is int) _selectedUserIds.add(u['id']);
                               }
                             });
+                            AppFeedback.showInfo(
+                              context,
+                              'Selected ${filtered.length} matching users.',
+                            );
                           },
                     child: const Text('Select All', style: TextStyle(fontSize: 12)),
                   ),
@@ -783,6 +805,10 @@ class _CreateEditScopeGroupScreenState extends State<CreateEditScopeGroupScreen>
                                 if (u['id'] is int) _selectedUserIds.remove(u['id']);
                               }
                             });
+                            AppFeedback.showInfo(
+                              context,
+                              'Cleared user selections.',
+                            );
                           },
                     child: const Text('Clear', style: TextStyle(fontSize: 12, color: Colors.grey)),
                   ),

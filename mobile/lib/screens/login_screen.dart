@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config.dart';
 import '../main.dart';
+import '../utils/app_feedback.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -163,7 +164,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final password = _passwordCtrl.text;
 
     if (identifier.isEmpty || password.isEmpty) {
-      setState(() => _error = 'Please enter both your identifier and password.');
+      const warn = 'Please enter both your identifier and password.';
+      setState(() => _error = warn);
+      AppFeedback.showWarning(context, warn);
       return;
     }
 
@@ -187,10 +190,18 @@ class _LoginScreenState extends State<LoginScreen> {
       if (res.statusCode == 200) {
         widget.onLogin(data['user'], data['token']);
       } else {
-        setState(() => _error = data['error'] ?? 'Login failed. Please check credentials.');
+        final err = data['error'] ?? 'Login failed. Please check credentials.';
+        setState(() => _error = err);
+        if (mounted) {
+          AppFeedback.showError(context, err);
+        }
       }
     } catch (_) {
-      setState(() => _error = 'Network error. Please ensure backend is running.');
+      const netErr = 'Network error. Please ensure backend is running.';
+      setState(() => _error = netErr);
+      if (mounted) {
+        AppFeedback.showError(context, netErr);
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -209,12 +220,16 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_otpType == 'phone') {
       final digits = target.replaceAll(RegExp(r'\D'), '');
       if (!RegExp(r'^[6-9]\d{9}$').hasMatch(digits)) {
-        setState(() => _error = 'Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+        const warn = 'Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.';
+        setState(() => _error = warn);
+        AppFeedback.showWarning(context, warn);
         return;
       }
     } else {
       if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(target)) {
-        setState(() => _error = 'Please enter a valid email address containing @ and domain.');
+        const warn = 'Please enter a valid email address containing @ and domain.';
+        setState(() => _error = warn);
+        AppFeedback.showWarning(context, warn);
         return;
       }
     }
@@ -234,12 +249,21 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = json.decode(res.body);
 
       if (res.statusCode == 200) {
+        final successMsg = data['message'] ?? 'OTP sent successfully!';
         setState(() {
           _otpSent = true;
           _demoOtp = data['demoOtp']?.toString();
-          _successMsg = data['message'] ?? 'OTP sent successfully!';
+          _successMsg = successMsg;
         });
         _startCountdown();
+        if (mounted) {
+          AppFeedback.showSuccess(
+            context,
+            _otpType == 'phone'
+                ? 'OTP sent to mobile +91 $target. Valid for 10 minutes.'
+                : 'OTP sent to email $target. Valid for 10 minutes.',
+          );
+        }
       } else {
         if (data['suggestAlternative'] != null && data['suggestionMessage'] != null) {
           setState(() {
@@ -249,10 +273,18 @@ class _LoginScreenState extends State<LoginScreen> {
             };
           });
         }
-        setState(() => _error = data['error'] ?? 'Failed to send OTP');
+        final err = data['error'] ?? 'Failed to send OTP';
+        setState(() => _error = err);
+        if (mounted) {
+          AppFeedback.showError(context, err);
+        }
       }
     } catch (_) {
-      setState(() => _error = 'Network error while requesting OTP.');
+      const netErr = 'Network error while requesting OTP.';
+      setState(() => _error = netErr);
+      if (mounted) {
+        AppFeedback.showError(context, netErr);
+      }
     } finally {
       if (mounted) setState(() => _sendingOtp = false);
     }
@@ -267,7 +299,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final otp = _otpCtrl.text.trim();
     if (otp.length != 6) {
-      setState(() => _error = 'Please enter the 6-digit OTP code.');
+      const warn = 'Please enter the 6-digit OTP code.';
+      setState(() => _error = warn);
+      AppFeedback.showWarning(context, warn);
       return;
     }
 
@@ -276,11 +310,15 @@ class _LoginScreenState extends State<LoginScreen> {
       final confirmPass = _confirmPasswordCtrl.text.trim();
 
       if (newPass.length < 6) {
-        setState(() => _error = 'New password must be at least 6 characters long.');
+        const warn = 'New password must be at least 6 characters long.';
+        setState(() => _error = warn);
+        AppFeedback.showWarning(context, warn);
         return;
       }
       if (newPass != confirmPass) {
-        setState(() => _error = 'New password and confirm password do not match.');
+        const warn = 'New password and confirm password do not match.';
+        setState(() => _error = warn);
+        AppFeedback.showWarning(context, warn);
         return;
       }
     }
@@ -308,12 +346,27 @@ class _LoginScreenState extends State<LoginScreen> {
       final data = json.decode(res.body);
 
       if (res.statusCode == 200) {
+        if (mounted) {
+          if (_wantsReset) {
+            AppFeedback.showSuccess(context, 'Password updated successfully! Welcome back.');
+          } else {
+            AppFeedback.showSuccess(context, 'Identity verified successfully! Signing in...');
+          }
+        }
         widget.onLogin(data['user'], data['token']);
       } else {
-        setState(() => _error = data['error'] ?? 'Failed to verify OTP.');
+        final err = data['error'] ?? 'Failed to verify OTP.';
+        setState(() => _error = err);
+        if (mounted) {
+          AppFeedback.showError(context, err);
+        }
       }
     } catch (_) {
-      setState(() => _error = 'Network error while verifying OTP.');
+      const netErr = 'Network error while verifying OTP.';
+      setState(() => _error = netErr);
+      if (mounted) {
+        AppFeedback.showError(context, netErr);
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -524,12 +577,17 @@ class _LoginScreenState extends State<LoginScreen> {
                                     padding: const EdgeInsets.symmetric(vertical: 8),
                                   ),
                                   onPressed: () {
+                                    final alt = _suggestion!['alternative']!;
                                     setState(() {
-                                      _otpType = _suggestion!['alternative']!;
+                                      _otpType = alt;
                                       _suggestion = null;
                                       _error = '';
                                       _otpSent = false;
                                     });
+                                    AppFeedback.showInfo(
+                                      context,
+                                      alt == 'phone' ? 'Switched to 📱 Mobile OTP' : 'Switched to 📧 Email OTP',
+                                    );
                                   },
                                   child: Text(
                                     _suggestion!['alternative'] == 'phone' ? 'Switch to 📱 Mobile OTP' : 'Switch to 📧 Email OTP',
@@ -609,6 +667,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 _successMsg = '';
                 _suggestion = null;
               });
+              AppFeedback.showInfo(context, 'Switched to OTP Authentication & Password Recovery');
             },
             child: const Text(
               'Forgot Password / Login with OTP →',
@@ -773,22 +832,39 @@ class _LoginScreenState extends State<LoginScreen> {
 
           // Demo OTP Badge for convenient testing
           if (_demoOtp != null) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Test OTP Code:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                  Text(
-                    _demoOtp!,
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 3, color: AppColors.primary),
-                  ),
-                ],
+            InkWell(
+              onTap: () {
+                _otpCtrl.text = _demoOtp!;
+                Clipboard.setData(ClipboardData(text: _demoOtp!));
+                AppFeedback.showSuccess(
+                  context,
+                  'Test OTP ($_demoOtp) filled and copied to clipboard!',
+                );
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: const [
+                        Icon(Icons.content_copy, size: 14, color: AppColors.primary),
+                        SizedBox(width: 6),
+                        Text('Test OTP (Tap to auto-fill):', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary)),
+                      ],
+                    ),
+                    Text(
+                      _demoOtp!,
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 3, color: AppColors.primary),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 14),
@@ -893,6 +969,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 _successMsg = '';
                 _suggestion = null;
               });
+              AppFeedback.showInfo(context, 'Switched to Password Login');
             },
             child: const Text('← Back to Password Login', style: TextStyle(fontSize: 13)),
           ),

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import FormRenderer from '../components/FormBuilder/FormRenderer';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 
 type Props = {
   onGoToLogin: () => void;
@@ -18,6 +19,7 @@ const DEFAULT_FALLBACK_SCHEMA = {
 };
 
 export default function Register({ onGoToLogin }: Props) {
+  const { success: toastSuccess, error: toastError } = useToast();
   const [schema, setSchema] = useState<any>(null);
   const [roles, setRoles] = useState<any[]>([]);
   const [error, setError] = useState('');
@@ -112,11 +114,16 @@ export default function Register({ onGoToLogin }: Props) {
 
       if (res.ok) {
         setSuccess(true);
+        toastSuccess('Registration submitted successfully! Your account request is pending administrator verification.', 'Request Submitted');
       } else {
-        setError(data.error || 'Registration failed');
+        const errMsg = data.error || 'Registration failed. Please check your submission.';
+        setError(errMsg);
+        toastError(errMsg, 'Registration Rejected');
       }
     } catch (err) {
-      setError('Network error');
+      const netMsg = 'Network error submitting registration. Please check connection and retry.';
+      setError(netMsg);
+      toastError(netMsg, 'Network Error');
     } finally {
       setIsLoading(false);
     }

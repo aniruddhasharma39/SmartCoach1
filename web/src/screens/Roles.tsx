@@ -30,6 +30,7 @@ import {
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 import './Roles.css';
 
 type Props = {
@@ -146,6 +147,7 @@ const getModuleMeta = (name: string, slug?: string) => {
 };
 
 export default function Roles({}: Props) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
   const [roles, setRoles] = useState<RoleItem[]>([]);
   const [modules, setModules] = useState<ModuleItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -173,8 +175,12 @@ export default function Roles({}: Props) {
       ]);
       if (rolesRes.ok) setRoles(await rolesRes.json());
       if (modsRes.ok) setModules(await modsRes.json());
+      if (!rolesRes.ok || !modsRes.ok) {
+        toastError('Failed to load complete roles and module permissions.', 'Server Error');
+      }
     } catch (err) {
       console.error('Failed to load roles data:', err);
+      toastError('Could not connect to server to load roles.', 'Network Error');
     } finally {
       setLoading(false);
     }
@@ -185,6 +191,7 @@ export default function Roles({}: Props) {
     const minDelay = new Promise(resolve => setTimeout(resolve, 500));
     try {
       await Promise.all([fetchData(), minDelay]);
+      toastInfo('Roles and module permissions updated.', 'Refreshed');
     } finally {
       setIsRefreshing(false);
     }
@@ -245,6 +252,7 @@ export default function Roles({}: Props) {
       ...prev,
       moduleIds: modules.map((m) => m.id),
     }));
+    toastInfo(`Selected all ${modules.length} modules for this role.`, 'Permissions');
   };
 
   const handleClearAll = () => {
@@ -252,6 +260,7 @@ export default function Roles({}: Props) {
       ...prev,
       moduleIds: [],
     }));
+    toastInfo('Cleared all module selections for this role.', 'Permissions');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -259,16 +268,18 @@ export default function Roles({}: Props) {
     const trimmedName = formData.name.trim();
     if (!trimmedName) {
       setModalError('Role name is required.');
+      toastWarning('Role name is required.', 'Validation');
       return;
     }
 
     setIsSaving(true);
     setModalError(null);
 
-    const url = editingRole
+    const isEditing = !!editingRole;
+    const url = isEditing
       ? `${API_URL}/api/v1/roles/${editingRole.id}`
       : `${API_URL}/api/v1/roles`;
-    const method = editingRole ? 'PUT' : 'POST';
+    const method = isEditing ? 'PUT' : 'POST';
 
     try {
       const res = await fetch(url, {
@@ -286,13 +297,22 @@ export default function Roles({}: Props) {
       if (res.ok) {
         setShowModal(false);
         fetchData();
+        if (isEditing) {
+          toastSuccess(`Role "${trimmedName}" updated with ${formData.moduleIds.length} module permissions.`, 'Role Updated');
+        } else {
+          toastSuccess(`Role "${trimmedName}" created with ${formData.moduleIds.length} module permissions.`, 'Role Created');
+        }
       } else {
         const errorData = await res.json().catch(() => ({}));
-        setModalError(errorData.error || errorData.message || 'Failed to save role');
+        const msg = errorData.error || errorData.message || 'Failed to save role';
+        setModalError(msg);
+        toastError(msg, 'Save Failed');
       }
     } catch (err: any) {
       console.error(err);
-      setModalError(err.message || 'Network error while saving role');
+      const msg = err.message || 'Network error while saving role';
+      setModalError(msg);
+      toastError(msg, 'Save Error');
     } finally {
       setIsSaving(false);
     }
@@ -300,6 +320,7 @@ export default function Roles({}: Props) {
 
   const confirmDelete = async () => {
     if (!deletingRole) return;
+    const roleNameToDelete = deletingRole.name;
     setIsDeleting(true);
     try {
       const res = await fetch(`${API_URL}/api/v1/roles/${deletingRole.id}`, {
@@ -309,13 +330,15 @@ export default function Roles({}: Props) {
       if (res.ok) {
         setDeletingRole(null);
         fetchData();
+        toastSuccess(`Role "${roleNameToDelete}" deleted successfully.`, 'Role Deleted');
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || 'Failed to delete role');
+        const msg = err.error || err.message || 'Failed to delete role';
+        toastError(msg, 'Delete Failed');
       }
     } catch (err) {
       console.error(err);
-      alert('Error occurred while deleting role');
+      toastError('Network error occurred while deleting role.', 'Delete Error');
     } finally {
       setIsDeleting(false);
     }
@@ -461,7 +484,10 @@ export default function Roles({}: Props) {
               {searchQuery && (
                 <button
                   className="btn-quick-pill"
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchQuery('');
+                    toastInfo('Role search filter cleared.', 'Search Reset');
+                  }}
                   style={{ display: 'inline-block', margin: '0 auto' }}
                 >
                   Clear Search

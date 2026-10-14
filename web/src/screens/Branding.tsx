@@ -7,7 +7,6 @@ import {
   FaUndo, 
   FaTag, 
   FaTrashAlt, 
-  FaCheckCircle, 
   FaExclamationTriangle,
   FaMagic,
   FaFileImage,
@@ -18,6 +17,7 @@ import {
 } from 'react-icons/fa';
 import type { User } from '../types';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 import './Branding.css';
 
 type Props = {
@@ -128,6 +128,7 @@ function parseGradient(gradientStr: string) {
 }
 
 export default function Branding({}: Props) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
   const [appName, setAppName] = useState('');
   const [initialAppName, setInitialAppName] = useState('');
   const [wallpaperUrl, setWallpaperUrl] = useState('');
@@ -135,7 +136,6 @@ export default function Branding({}: Props) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Gradient state
@@ -179,7 +179,9 @@ export default function Branding({}: Props) {
   const handleFileChange = (selectedFile: File | null) => {
     if (selectedFile) {
       if (!selectedFile.type.startsWith('image/')) {
-        setErrorMessage('Please select a valid image file (PNG, JPG, WEBP, or SVG).');
+        const msg = 'Please select a valid image file (PNG, JPG, WEBP, or SVG).';
+        setErrorMessage(msg);
+        toastWarning(msg, 'Invalid File');
         return;
       }
       setFile(selectedFile);
@@ -206,6 +208,7 @@ export default function Branding({}: Props) {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+    toastInfo('Drafted logo preview removed.', 'Logo Reset');
   };
 
   // Gradient Handlers
@@ -214,6 +217,7 @@ export default function Branding({}: Props) {
     setColor1(preset.color1);
     setColor2(preset.color2);
     setAngle(preset.angle);
+    toastInfo(`Applied "${preset.name}" gradient theme.`, 'Theme Preset');
   };
 
   const handleColor1Change = (newColor1: string) => {
@@ -243,6 +247,7 @@ export default function Branding({}: Props) {
     setColor2(parsed.color2);
     setAngle(parsed.angle);
     setErrorMessage(null);
+    toastInfo('Restored branding settings to current saved state.', 'Settings Restored');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -285,14 +290,17 @@ export default function Branding({}: Props) {
           URL.revokeObjectURL(previewUrl);
           setPreviewUrl(null);
         }
-        setToastMessage('Branding, logo, and login gradient updated successfully!');
-        setTimeout(() => setToastMessage(null), 4000);
+        toastSuccess('Branding, logo, and login gradient updated successfully!', 'Branding Updated');
       } else {
-        setErrorMessage(data.error || 'Failed to update branding');
+        const msg = data.error || 'Failed to update branding';
+        setErrorMessage(msg);
+        toastError(msg, 'Update Failed');
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMessage(err.message || 'Error occurred while saving branding');
+      const msg = err.message || 'Error occurred while saving branding';
+      setErrorMessage(msg);
+      toastError(msg, 'Save Error');
     } finally {
       setLoading(false);
     }
@@ -324,13 +332,6 @@ export default function Branding({}: Props) {
       {/* Main Studio Grid */}
       <div className="branding-studio-grid">
         <div className="branding-form-col">
-          {toastMessage && (
-            <div className="branding-toast">
-              <FaCheckCircle style={{ fontSize: '1.1rem' }} />
-              <span>{toastMessage}</span>
-            </div>
-          )}
-
           {errorMessage && (
             <div
               style={{

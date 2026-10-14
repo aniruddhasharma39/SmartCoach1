@@ -7,6 +7,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' as io;
 import '../../config.dart';
+import '../../utils/app_feedback.dart';
 
 class UploadEvidenceScreen extends StatefulWidget {
   final String token;
@@ -40,7 +41,6 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
   Position? _currentPosition;
   bool _isCheckingLocation = false;
   bool _isLocationServiceEnabled = true;
-  LocationPermission? _locationPermission;
   String? _locationStatusMessage;
 
   @override
@@ -65,7 +65,7 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
     }
   }
 
-  Future<void> _refreshLocationStatus() async {
+  Future<void> _refreshLocationStatus({bool isManual = false}) async {
     if (_isCheckingLocation) return;
     setState(() => _isCheckingLocation = true);
 
@@ -78,17 +78,22 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
           _currentPosition = null;
           _locationStatusMessage = 'Device Location (GPS) is turned OFF.';
         });
+        if (mounted && isManual) {
+          AppFeedback.showWarning(context, 'Device Location (GPS) is turned OFF.');
+        }
         return;
       }
 
       final permission = await Geolocator.checkPermission();
-      setState(() => _locationPermission = permission);
 
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
         setState(() {
           _currentPosition = null;
           _locationStatusMessage = 'Location permission is required.';
         });
+        if (mounted && isManual) {
+          AppFeedback.showWarning(context, 'Location permission is required to upload evidence.');
+        }
         return;
       }
 
@@ -109,6 +114,12 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
               ? 'GPS Ready: ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}'
               : 'Acquiring GPS fix...';
         });
+        if (isManual && pos != null) {
+          AppFeedback.showSuccess(
+            context,
+            'GPS coordinates updated: ${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}',
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error refreshing location: $e');
@@ -166,7 +177,6 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
     }
-    setState(() => _locationPermission = permission);
 
     if (permission == LocationPermission.denied) {
       if (mounted) {
@@ -260,6 +270,9 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
         _image = photo;
         _sourceLabel = source == ImageSource.camera ? 'Camera' : 'Gallery';
       });
+      if (mounted) {
+        AppFeedback.showSuccess(context, 'Photo captured/selected via $_sourceLabel.');
+      }
       _refreshLocationStatus();
     }
   }
@@ -294,7 +307,10 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
   }
 
   Future<void> _upload() async {
-    if (_image == null) return;
+    if (_image == null) {
+      AppFeedback.showWarning(context, 'Please capture or select a photo first.');
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -369,7 +385,10 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
           _progressStatus = 'Upload complete!';
         });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploaded successfully with GPS stamp!')));
+          AppFeedback.showSuccess(
+            context,
+            'Evidence for "${widget.targetName}" uploaded with verified GPS coordinates!',
+          );
         }
         await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) {
@@ -398,7 +417,7 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
         if (msg.startsWith('Exception: ')) {
           msg = msg.substring('Exception: '.length);
         }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $msg')));
+        AppFeedback.showError(context, msg);
       }
     } finally {
       _progressTimer?.cancel();
@@ -442,7 +461,7 @@ class _UploadEvidenceScreenState extends State<UploadEvidenceScreen> with Widget
               icon: const Icon(Icons.refresh, size: 20),
               color: Colors.green.shade700,
               tooltip: 'Refresh GPS',
-              onPressed: _isLoading ? null : () => _refreshLocationStatus(),
+              onPressed: _isLoading ? null : () => _refreshLocationStatus(isManual: true),
             ),
           ],
         ),

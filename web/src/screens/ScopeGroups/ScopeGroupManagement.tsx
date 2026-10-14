@@ -24,6 +24,7 @@ import {
 import type { User, ScopeGroupItem } from '../../types';
 import { API_URL } from '../../config';
 import { RAILWAY_ZONES, RAILWAY_DATA } from '../Cluster/railwayData';
+import { useToast } from '../../context/ToastContext';
 import './ScopeGroupManagement.css';
 
 type Props = {
@@ -47,6 +48,7 @@ const authHeaders = () => ({
 });
 
 export default function ScopeGroupManagement({ user }: Props) {
+  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
   // If user is assigned to any scope group, or is not a developer, they are restricted to read-only scope view
   const isAssigned = Boolean(user.scopeGroups && user.scopeGroups.length > 0);
   const canManage = user.role === 'Developer' && !isAssigned;
@@ -306,6 +308,7 @@ export default function ScopeGroupManagement({ user }: Props) {
       pickerFilteredGates.forEach(g => next.add(g.id));
       return next;
     });
+    toastInfo(`Selected all ${pickerFilteredGates.length} filtered gates.`, 'Gates Selected');
   };
 
   const deselectAllFilteredGates = () => {
@@ -314,6 +317,7 @@ export default function ScopeGroupManagement({ user }: Props) {
       pickerFilteredGates.forEach(g => next.delete(g.id));
       return next;
     });
+    toastInfo(`Deselected ${pickerFilteredGates.length} filtered gates.`, 'Gates Deselected');
   };
 
   // Filtered Users in Picker
@@ -357,6 +361,7 @@ export default function ScopeGroupManagement({ user }: Props) {
     if (!canManage) return;
     if (!formName.trim()) {
       setFormError('Please enter a Scope Group name');
+      toastWarning('Please enter a Scope Group name.', 'Validation');
       setModalTab('details');
       return;
     }
@@ -364,8 +369,10 @@ export default function ScopeGroupManagement({ user }: Props) {
     setSubmitting(true);
     setFormError(null);
 
+    const isEditing = Boolean(editingGroupId);
+    const trimmedName = formName.trim();
     const payload = {
-      name: formName.trim(),
+      name: trimmedName,
       description: formDesc.trim() || null,
       color: formColor,
       gateIds: Array.from(selectedGateIds),
@@ -385,14 +392,21 @@ export default function ScopeGroupManagement({ user }: Props) {
       });
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Failed to save scope group');
       }
 
       setIsModalOpen(false);
       await fetchScopeGroups();
+      if (isEditing) {
+        toastSuccess(`Scope Group "${trimmedName}" updated successfully.`, 'Group Updated');
+      } else {
+        toastSuccess(`Scope Group "${trimmedName}" created with ${selectedGateIds.size} gates and ${selectedUserIds.size} users.`, 'Group Created');
+      }
     } catch (err: any) {
-      setFormError(err.message || 'Error occurred while saving');
+      const msg = err.message || 'Error occurred while saving scope group';
+      setFormError(msg);
+      toastError(msg, 'Save Error');
     } finally {
       setSubmitting(false);
     }
@@ -401,6 +415,7 @@ export default function ScopeGroupManagement({ user }: Props) {
   // Delete Scope Group
   const handleDeleteGroup = async () => {
     if (!deleteConfirmGroup) return;
+    const groupName = deleteConfirmGroup.name;
     try {
       const res = await fetch(`${API_URL}/api/v1/scope-groups/${deleteConfirmGroup.id}`, {
         method: 'DELETE',
@@ -409,13 +424,14 @@ export default function ScopeGroupManagement({ user }: Props) {
       if (res.ok) {
         setDeleteConfirmGroup(null);
         await fetchScopeGroups();
+        toastSuccess(`Scope Group "${groupName}" deleted successfully.`, 'Group Deleted');
       } else {
-        const data = await res.json();
-        alert(data.error || 'Failed to delete scope group');
+        const data = await res.json().catch(() => ({}));
+        toastError(data.error || 'Failed to delete scope group', 'Delete Failed');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      alert('Error deleting scope group');
+      toastError(err.message || 'Network error while deleting scope group.', 'Delete Error');
     }
   };
 
@@ -494,7 +510,10 @@ export default function ScopeGroupManagement({ user }: Props) {
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery('')}
+                  onClick={() => {
+                    setSearchQuery('');
+                    toastInfo('Scope group search filter cleared.', 'Search Reset');
+                  }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
                 >
                   <FaTimes />
@@ -502,7 +521,14 @@ export default function ScopeGroupManagement({ user }: Props) {
               )}
             </div>
 
-            <button className="btn btn-secondary" onClick={loadInitialData} title="Refresh data">
+            <button
+              className="btn btn-secondary"
+              onClick={async () => {
+                await loadInitialData();
+                toastInfo('Scope groups catalog and assignments updated.', 'Refreshed');
+              }}
+              title="Refresh data"
+            >
               <FaSyncAlt /> Refresh
             </button>
           </div>

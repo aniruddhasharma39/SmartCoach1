@@ -7,6 +7,7 @@ import 'gate_detail_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../config.dart';
 import '../../main.dart';
+import '../../utils/app_feedback.dart';
 import 'railway_data.dart';
 
 class ClusterMainScreen extends StatefulWidget {
@@ -108,46 +109,43 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
     }
   }
 
-  Future<void> _fetchGates() async {
-    setState(() => _isLoading = true);
+  Future<void> _fetchGates({bool isManualRefresh = false}) async {
+    if (!isManualRefresh) setState(() => _isLoading = true);
     try {
       final res = await http.get(
         Uri.parse('$baseUrl/lcgate'),
         headers: {'Authorization': 'Bearer $_token'},
       );
       if (res.statusCode == 200) {
-        setState(() {
-          _gates = json.decode(res.body);
-        });
-      } else if (res.statusCode == 401) {
         if (mounted) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.remove('token');
-          await prefs.remove('user');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Your session has expired. Please log in again.')),
-          );
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const AuthWrapper()),
-            (route) => false,
-          );
+          setState(() {
+            _gates = json.decode(res.body);
+          });
+          if (isManualRefresh) {
+            AppFeedback.showSuccess(context, 'LC Gates and clusters refreshed.');
+          }
         }
+      } else if (res.statusCode == 401) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('token');
+        await prefs.remove('user');
+        if (!mounted) return;
+        AppFeedback.showWarning(context, 'Your session has expired. Please log in again.');
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const AuthWrapper()),
+          (route) => false,
+        );
       } else {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to load clusters: ${res.statusCode}')),
-          );
+          AppFeedback.showError(context, 'Failed to load clusters (HTTP ${res.statusCode}).');
         }
       }
     } catch (e) {
-      print('Error fetching gates: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Network error loading clusters: $e')),
-        );
+        AppFeedback.showError(context, 'Network error loading clusters: $e');
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted && !isManualRefresh) setState(() => _isLoading = false);
     }
   }
 
@@ -209,6 +207,9 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
       _filterLc = '';
       _sortBy = 'newest';
     });
+    if (mounted) {
+      AppFeedback.showInfo(context, 'Filter criteria reset.');
+    }
   }
 
   void _openFilterSheet() {
@@ -272,6 +273,7 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
                               nameCtrl.clear();
                               lcCtrl.clear();
                             });
+                            AppFeedback.showInfo(context, 'Filter selections reset.');
                           },
                           child: const Text('Reset'),
                         ),
@@ -335,6 +337,15 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
                           _sortBy = sort;
                         });
                         Navigator.pop(sheetContext);
+                        final count = _visibleGates.length;
+                        if (count > 0) {
+                          AppFeedback.showSuccess(
+                            context,
+                            'Filters applied: $count LC ${count == 1 ? "Gate" : "Gates"} found.',
+                          );
+                        } else {
+                          AppFeedback.showInfo(context, 'Filters applied: No matching LC Gates found.');
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(vertical: 15),
@@ -354,9 +365,10 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
 
   Future<void> _deleteGate(Map gate) async {
     final ctrl = TextEditingController();
+    final targetName = (gate['name'] ?? gate['lcNumber'] ?? 'Gate').toString();
     bool confirm = await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Are you absolutely sure?', style: TextStyle(color: Colors.red)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -364,7 +376,7 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
           children: [
             const Text('This action cannot be undone. It will permanently delete this LC Gate and all associated Master units, Slave devices, and photographic evidence.'),
             const SizedBox(height: 16),
-            Text('Please type "${gate['name'] ?? gate['lcNumber']}" to confirm:'),
+            Text('Please type "$targetName" to confirm:'),
             const SizedBox(height: 8),
             TextField(
               controller: ctrl,
@@ -373,14 +385,14 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dialogCtx, false), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
-              if (ctrl.text == (gate['name'] ?? gate['lcNumber'])) {
-                Navigator.pop(context, true);
+              if (ctrl.text.trim() == targetName) {
+                Navigator.pop(dialogCtx, true);
               } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Name does not match')));
+                AppFeedback.showWarning(context, 'Entered name does not match "$targetName". Deletion aborted.');
               }
             }, 
             child: const Text('Delete this gate', style: TextStyle(color: Colors.white))
@@ -397,15 +409,27 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
         Uri.parse('$baseUrl/lcgate/${gate['id']}'),
         headers: {'Authorization': 'Bearer $_token'},
       );
-      if (res.statusCode == 204) {
-        _fetchGates();
+      if (res.statusCode == 204 || res.statusCode == 200) {
+        await _fetchGates();
+        if (mounted) {
+          AppFeedback.showSuccess(context, 'LC Gate "$targetName" permanently deleted.');
+        }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete')));
-        setState(() => _isLoading = false);
+        String errMsg = 'Failed to delete LC Gate';
+        try {
+          final err = json.decode(res.body);
+          if (err['error'] != null) errMsg = err['error'];
+        } catch (_) {}
+        if (mounted) {
+          AppFeedback.showError(context, errMsg);
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-      setState(() => _isLoading = false);
+      if (mounted) {
+        AppFeedback.showError(context, 'Network error deleting LC Gate: $e');
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -419,6 +443,11 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Refresh Gates',
+            onPressed: () => _fetchGates(isManualRefresh: true),
+          ),
           IconButton(
             icon: Badge(
               isLabelVisible: _hasActiveFilters,
@@ -439,7 +468,11 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
               builder: (_) => CreateGateScreen(token: _token),
             ),
           );
-          if (result == true) _fetchGates();
+          if (!mounted) return;
+          if (result == true) {
+            _fetchGates();
+            AppFeedback.showSuccess(context, 'New LC Gate created and added to cluster list.');
+          }
         },
       ),
       body: Container(
@@ -488,67 +521,74 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
                         ],
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: filtered.length + (_scopeNames.isNotEmpty ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (_scopeNames.isNotEmpty && index == 0) {
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 14),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0B3C7A).withOpacity(0.06),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFF0B3C7A).withOpacity(0.18)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.layers, size: 18, color: Color(0xFF0B3C7A)),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Scope: ${_scopeNames.join(", ")}',
-                                    style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF0B3C7A)),
-                                    overflow: TextOverflow.ellipsis,
+                  : RefreshIndicator(
+                      onRefresh: () => _fetchGates(isManualRefresh: true),
+                      child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        itemCount: filtered.length + (_scopeNames.isNotEmpty ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (_scopeNames.isNotEmpty && index == 0) {
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 14),
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0B3C7A).withOpacity(0.06),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF0B3C7A).withOpacity(0.18)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.layers, size: 18, color: Color(0xFF0B3C7A)),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'Scope: ${_scopeNames.join(", ")}',
+                                      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: Color(0xFF0B3C7A)),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF0B3C7A),
-                                    borderRadius: BorderRadius.circular(12),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF0B3C7A),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${filtered.length} ${filtered.length == 1 ? "Gate" : "Gates"}',
+                                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                                    ),
                                   ),
-                                  child: Text(
-                                    '${filtered.length} ${filtered.length == 1 ? "Gate" : "Gates"}',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-                        final gateIndex = _scopeNames.isNotEmpty ? index - 1 : index;
-                        final gate = filtered[gateIndex];
-                        final masters = gate['masters'] as List? ?? [];
-                        final deviceCount = masters.fold<int>(0, (sum, m) => sum + ((m['childDevices'] as List?)?.length ?? 0));
-                        final zone = (gate['zone'] as String?) ?? '';
-                        final division = (gate['division'] as String?) ?? '';
+                                ],
+                              ),
+                            );
+                          }
+                          final gateIndex = _scopeNames.isNotEmpty ? index - 1 : index;
+                          final gate = filtered[gateIndex];
+                          final masters = gate['masters'] as List? ?? [];
+                          final deviceCount = masters.fold<int>(0, (sum, m) => sum + ((m['childDevices'] as List?)?.length ?? 0));
+                          final zone = (gate['zone'] as String?) ?? '';
+                          final division = (gate['division'] as String?) ?? '';
 
-                        return Card(
-                          elevation: 4,
-                          margin: const EdgeInsets.only(bottom: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(16),
-                            onTap: () async {
-                              final result = await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => GateDetailScreen(token: _token, gate: gate),
-                                ),
-                              );
-                              if (result == true) _fetchGates();
-                            },
+                          return Card(
+                            elevation: 4,
+                            margin: const EdgeInsets.only(bottom: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(16),
+                              onTap: () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => GateDetailScreen(token: _token, gate: gate),
+                                  ),
+                                );
+                                if (!mounted) return;
+                                if (result == true) {
+                                  _fetchGates();
+                                  AppFeedback.showSuccess(context, 'LC Gate details refreshed.');
+                                }
+                              },
                             child: Padding(
                               padding: const EdgeInsets.all(16),
                               child: Column(
@@ -633,6 +673,7 @@ class _ClusterMainScreenState extends State<ClusterMainScreen> {
                         );
                       },
                     ),
+                  ),
       ),
     );
   }

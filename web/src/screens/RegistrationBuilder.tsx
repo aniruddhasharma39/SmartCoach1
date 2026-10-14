@@ -11,11 +11,12 @@ import {
   FaPhone, FaLock, FaCheckSquare, FaCircle, FaCaretSquareDown, 
   FaCalendar, FaImage, FaPlus, FaMobileAlt, FaDesktop, 
   FaExclamationTriangle, FaSpinner, FaCheck, FaSave, FaEye, 
-  FaCloudUploadAlt, FaCheckCircle, FaTimesCircle, FaInfoCircle,
+  FaCloudUploadAlt, FaCheckCircle,
   FaArrowUp, FaArrowDown, FaCopy, FaCog, FaSearch, FaWpforms,
   FaClipboardList, FaLayerGroup, FaChevronDown, FaChevronUp, FaTimes, FaEdit
 } from 'react-icons/fa';
 import { API_URL } from '../config';
+import { useToast } from '../context/ToastContext';
 import './RegistrationBuilder.css';
 
 // Palette field definition
@@ -77,13 +78,16 @@ export default function RegistrationBuilder() {
   const [previewStatus, setPreviewStatus] = useState<'idle' | 'loading'>('idle');
   const [isCreatingForm, setIsCreatingForm] = useState(false);
   const [deletingFormId, setDeletingFormId] = useState<number | null>(null);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'danger' | 'info' } | null>(null);
+  const { success: toastSuccess, error: toastError, warning: _toastWarning, info: toastInfo } = useToast();
 
   const showToast = (message: string, type: 'success' | 'danger' | 'info' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => {
-      setToast(prev => prev?.message === message ? null : prev);
-    }, 3200);
+    if (type === 'danger') {
+      toastError(message, 'Registration Builder');
+    } else if (type === 'info') {
+      toastInfo(message, 'Registration Builder');
+    } else {
+      toastSuccess(message, 'Registration Builder');
+    }
   };
 
   const fetchForms = async () => {
@@ -807,16 +811,6 @@ export default function RegistrationBuilder() {
 
     return (
       <div className="reg-builder-root">
-        {/* Toast Notification */}
-        {toast && (
-          <div className={`toast-banner ${toast.type}`}>
-            {toast.type === 'success' && <FaCheckCircle size={16} />}
-            {toast.type === 'danger' && <FaTimesCircle size={16} />}
-            {toast.type === 'info' && <FaInfoCircle size={16} />}
-            <span>{toast.message}</span>
-          </div>
-        )}
-
         {/* Top Header Console Bar */}
         <div className="reg-editor-header">
           <div className="reg-editor-title-container">
@@ -1308,8 +1302,7 @@ export default function RegistrationBuilder() {
                       schema={{ fields, allowRoles }} 
                       roles={systemRoles} 
                       onSubmit={(data) => {
-                        showToast('Preview submission received successfully!', 'info');
-                        alert('Preview Form Submitted! Captured payload:\n' + JSON.stringify(data, null, 2));
+                        toastSuccess(`Preview Form Submitted! Form validation and data capture verified (${Object.keys(data).length} fields).`, 'Preview Form');
                       }} 
                     />
                   </div>
@@ -1319,8 +1312,7 @@ export default function RegistrationBuilder() {
                       schema={{ fields, allowRoles }} 
                       roles={systemRoles} 
                       onSubmit={(data) => {
-                        showToast('Preview submission received successfully!', 'info');
-                        alert('Preview Form Submitted! Captured payload:\n' + JSON.stringify(data, null, 2));
+                        toastSuccess(`Preview Form Submitted! Form validation and data capture verified (${Object.keys(data).length} fields).`, 'Preview Form');
                       }} 
                     />
                   </div>
@@ -1364,16 +1356,6 @@ export default function RegistrationBuilder() {
 
   return (
     <div className="reg-builder-root">
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`toast-banner ${toast.type}`}>
-          {toast.type === 'success' && <FaCheckCircle size={16} />}
-          {toast.type === 'danger' && <FaTimesCircle size={16} />}
-          {toast.type === 'info' && <FaInfoCircle size={16} />}
-          <span>{toast.message}</span>
-        </div>
-      )}
-
       <div className="reg-builder-dashboard">
         {/* Dashboard Header */}
         <div className="reg-dashboard-header">

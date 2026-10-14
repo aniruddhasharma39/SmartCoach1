@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../config.dart';
 import '../main.dart';
+import '../utils/app_feedback.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -110,17 +111,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _register() async {
     if (_passwordCtrl.text.trim().isEmpty) {
-      setState(() => _error = 'Password is required');
+      const warn = 'Password is required';
+      setState(() => _error = warn);
+      AppFeedback.showWarning(context, warn);
       return;
     }
 
     if (_passwordCtrl.text != _confirmPasswordCtrl.text) {
-      setState(() => _error = 'Passwords do not match');
+      const warn = 'Passwords do not match';
+      setState(() => _error = warn);
+      AppFeedback.showWarning(context, warn);
       return;
     }
     
     if (_form == null) {
-      setState(() => _error = 'No active registration form.');
+      const warn = 'No active registration form.';
+      setState(() => _error = warn);
+      AppFeedback.showWarning(context, warn);
       return;
     }
 
@@ -129,11 +136,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     bool isValid = _validateAllFields(_fields);
     if (_allowRoles && _requestedRoleId == null) {
       isValid = false;
-      setState(() => _error = 'Please select a requested role.');
+      const warn = 'Please select a requested role.';
+      setState(() => _error = warn);
+      AppFeedback.showWarning(context, warn);
     }
     
     if (!isValid) {
       setState(() {}); // Trigger rebuild to show errors
+      AppFeedback.showWarning(context, 'Please fill in all required fields marked with an asterisk (*).');
       return;
     }
     
@@ -188,13 +198,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final data = json.decode(res.body);
       if (res.statusCode == 201) {
         setState(() => _success = true);
+        if (mounted) {
+          AppFeedback.showSuccess(
+            context,
+            'Registration submitted successfully! Your account is pending administrator approval.',
+          );
+        }
       } else {
-        setState(() => _error = data['error'] ?? 'Registration failed');
+        final err = data['error'] ?? 'Registration failed';
+        setState(() => _error = err);
+        if (mounted) {
+          AppFeedback.showError(context, err);
+        }
       }
     } catch (e) {
-      setState(() => _error = 'Network error: $e');
+      final netErr = 'Network error: $e';
+      setState(() => _error = netErr);
+      if (mounted) {
+        AppFeedback.showError(context, netErr);
+      }
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -310,6 +334,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   final picked = await _picker.pickImage(source: source);
                   if (picked != null) {
                     setState(() { _formData[f['name']] = picked; _errors.remove(f['name']); });
+                    if (!mounted) return;
+                    AppFeedback.showSuccess(context, 'Image attached: ${picked.name}');
                   }
                 },
                 icon: const Icon(Icons.upload),
