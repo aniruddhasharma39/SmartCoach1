@@ -11,6 +11,7 @@ import lcgateRoutes from './routes/lcgate';
 import evidenceRoutes from './routes/evidence';
 import notificationsRoutes from './routes/notifications';
 import scopeGroupsRoutes from './routes/scopeGroups';
+import servicesRoutes from './routes/services';
 import { errorHandler } from './middleware/error';
 import { prisma } from './lib/prisma';
 
@@ -46,6 +47,7 @@ app.use('/api/v1/lcgate', lcgateRoutes);
 app.use('/api/v1/evidence', evidenceRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/scope-groups', scopeGroupsRoutes);
+app.use('/api/v1/services', servicesRoutes);
 
 // Error Handling
 app.use(errorHandler);
@@ -57,6 +59,11 @@ const ensureSystemModules = async () => {
       where: { slug: 'scope-groups' },
       update: {},
       create: { name: 'Scope Groups', slug: 'scope-groups' }
+    });
+    await prisma.module.upsert({
+      where: { slug: 'services' },
+      update: {},
+      create: { name: 'Services', slug: 'services' }
     });
   } catch (err) {
     console.error('Failed to ensure scope-groups module:', err);

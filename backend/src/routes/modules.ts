@@ -6,18 +6,27 @@ const router = Router();
 
 router.use(authenticate);
 
-const CANONICAL_ORDER = ['lc-gates', 'branding', 'cluster', 'scope-groups', 'manage-users', 'registration', 'roles'];
+const CANONICAL_ORDER = [
+  'services',
+  'brake-binding',
+  'hot-axle',
+  'bad-odour',
+  'emergency-brake',
+  'bpc-pressure',
+  'scope-groups',
+  'manage-users',
+  'registration',
+  'roles',
+  'branding',
+];
 
 router.get('/', async (req, res, next) => {
   try {
-    // Ensure LC Gates module exists
-    await prisma.module.upsert({
-      where: { slug: 'lc-gates' },
-      update: {},
-      create: { name: 'LC Gates', slug: 'lc-gates' }
+    const modules = await prisma.module.findMany({
+      where: {
+        slug: { notIn: ['lc-gates', 'cluster'] }
+      }
     });
-
-    const modules = await prisma.module.findMany();
     modules.sort((a, b) => {
       let idxA = CANONICAL_ORDER.indexOf(a.slug);
       let idxB = CANONICAL_ORDER.indexOf(b.slug);

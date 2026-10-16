@@ -186,6 +186,7 @@ model ScopeGroup {
   updatedAt   DateTime         @updatedAt
 
   gates       ScopeGroupGate[]
+  devices     ScopeGroupDevice[]
   users       ScopeGroupUser[]
 
   @@index([parentId])
@@ -205,6 +206,51 @@ model ScopeGroupGate {
   @@index([gateId])
 }
 
+model ScopeGroupDevice {
+  id           Int        @id @default(autoincrement())
+  scopeGroupId Int
+  scopeGroup   ScopeGroup @relation(fields: [scopeGroupId], references: [id], onDelete: Cascade)
+  serviceSlug  String     // 'brake-binding' | 'hot-axle' | 'emergency-brake' | 'bpc-pressure'
+  deviceId     String     // Hardware / Device identifier in Supabase
+  assignedAt   DateTime   @default(now())
+
+  @@unique([scopeGroupId, serviceSlug, deviceId])
+  @@index([scopeGroupId])
+  @@index([serviceSlug, deviceId])
+}
+
+model ServiceColumnConfig {
+  id               Int      @id @default(autoincrement())
+  serviceSlug      String   // 'brake-binding' | 'hot-axle' | 'emergency-brake' | 'bpc-pressure'
+  tableName        String   // Supabase table name
+  columnKey        String   // Column name in Supabase
+  displayName      String   // User-friendly label
+  dataType         String   // 'number' | 'string' | 'boolean' | 'timestamp'
+  displayStyle     String   // 'card' | 'pill' | 'badge' | 'table-column'
+  isVisible        Boolean  @default(true)
+  isPrimaryKey     Boolean  @default(false)
+  sortOrder        Int      @default(0)
+
+  // Performance Gradient Styling
+  gradientEnabled  Boolean  @default(false)
+  minGoodValue     Float?   // Nominal / Green
+  maxGoodValue     Float?
+  warningValue     Float?   // Amber / Warning
+  criticalValue    Float?   // Crimson / Red
+
+  // Alert & Notification Triggers
+  alertTriggerType String?  // 'NONE' | 'GREATER_THAN' | 'LESS_THAN' | 'EQUALS'
+  alertThreshold   String?  // Trigger value
+  alertMessage     String?  // Notification message
+  sendSms          Boolean  @default(false)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([serviceSlug, tableName, columnKey])
+  @@index([serviceSlug])
+}
+
 model ScopeGroupUser {
   id           Int        @id @default(autoincrement())
   scopeGroupId Int
@@ -218,5 +264,6 @@ model ScopeGroupUser {
   @@index([scopeGroupId])
   @@index([userId])
 }
+
 
 

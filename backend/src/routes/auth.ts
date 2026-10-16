@@ -8,6 +8,7 @@ import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/auth';
 import { send2FactorSmsOtp } from '../lib/twofactor';
 import { validateRegistrationUniqueness } from '../lib/uniqueness';
+import { getAllDescendantScopeGroupIds } from '../lib/scopeHierarchy';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -175,6 +176,36 @@ router.get('/registration-form', async (req, res, next) => {
   }
 });
 
+async function resolveUserScopeAndServices(userId: number, roleName?: string) {
+  let accessibleServices: string[] = [];
+  const SMART_SERVICES = ['brake-binding', 'hot-axle', 'bad-odour', 'emergency-brake', 'bpc-pressure'];
+
+  const userScopeGroups = await prisma.scopeGroupUser.findMany({
+    where: { userId },
+    include: {
+      scopeGroup: {
+        select: { id: true, name: true, color: true, description: true }
+      }
+    }
+  });
+
+  const scopeGroups = userScopeGroups.map(sg => sg.scopeGroup);
+
+  if (roleName === 'Developer') {
+    accessibleServices = SMART_SERVICES;
+  } else if (scopeGroups.length > 0) {
+    const scopeGroupIds = scopeGroups.map((g: any) => g.id);
+    const allAccessibleGroupIds = await getAllDescendantScopeGroupIds(scopeGroupIds);
+    const devices = await prisma.scopeGroupDevice.findMany({
+      where: { scopeGroupId: { in: allAccessibleGroupIds } },
+      select: { serviceSlug: true },
+    });
+    accessibleServices = Array.from(new Set(devices.map((d: any) => d.serviceSlug)));
+  }
+
+  return { scopeGroups, accessibleServices };
+}
+
 async function createSession(user: any) {
   const secret = process.env.JWT_SECRET || 'super-secret-jwt-key';
   const refreshSecret = process.env.JWT_REFRESH_SECRET || 'super-secret-refresh-key';
@@ -197,9 +228,15 @@ async function createSession(user: any) {
 
   let allowedModules = user.role?.roleModules?.map((rm: any) => rm.module?.slug) || [];
   if (user.role?.name === 'Developer') {
-    const allModules = await prisma.module.findMany();
+    const allModules = await prisma.module.findMany({
+      where: { slug: { notIn: ['lc-gates', 'cluster'] } }
+    });
     allowedModules = allModules.map((m: any) => m.slug);
+  } else {
+    allowedModules = allowedModules.filter((s: string) => s !== 'lc-gates' && s !== 'cluster');
   }
+
+  const { scopeGroups, accessibleServices } = await resolveUserScopeAndServices(user.id, user.role?.name);
 
   return {
     token,
@@ -215,7 +252,9 @@ async function createSession(user: any) {
       metadata: user.metadata,
       createdAt: user.createdAt,
       mustChangePassword: user.mustChangePassword,
-      allowedModules
+      allowedModules,
+      scopeGroups,
+      accessibleServices
     }
   };
 }
@@ -590,21 +629,15 @@ router.get('/me', authenticate, async (req: any, res, next) => {
 
     let allowedModules = user.role?.roleModules?.map((rm: any) => rm.module?.slug) || [];
     if (user.role?.name === 'Developer') {
-      const allModules = await prisma.module.findMany();
+      const allModules = await prisma.module.findMany({
+        where: { slug: { notIn: ['lc-gates', 'cluster'] } }
+      });
       allowedModules = allModules.map((m: any) => m.slug);
+    } else {
+      allowedModules = allowedModules.filter((s: string) => s !== 'lc-gates' && s !== 'cluster');
     }
 
-    const scopeGroups = user.scopeGroups?.map((sg: any) => ({
-      id: sg.scopeGroup.id,
-      name: sg.scopeGroup.name,
-      color: sg.scopeGroup.color,
-      description: sg.scopeGroup.description
-    })) || [];
-
-    // If user has assigned scope groups, ensure 'lc-gates' is available in allowedModules
-    if (scopeGroups.length > 0 && !allowedModules.includes('lc-gates')) {
-      allowedModules.unshift('lc-gates');
-    }
+    const { scopeGroups, accessibleServices } = await resolveUserScopeAndServices(user.id, user.role?.name);
 
     res.json({
       id: user.id,
@@ -618,7 +651,8 @@ router.get('/me', authenticate, async (req: any, res, next) => {
       createdAt: user.createdAt,
       status: user.status,
       allowedModules,
-      scopeGroups
+      scopeGroups,
+      accessibleServices
     });
   } catch (error) {
     next(error);

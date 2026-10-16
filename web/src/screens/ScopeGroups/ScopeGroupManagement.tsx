@@ -7,27 +7,20 @@ import {
   FaEdit,
   FaUsers,
   FaTimes,
-  FaSyncAlt,
-  FaMicrochip,
-  FaTag,
-  FaCheckDouble,
-  FaLock,
   FaArrowLeft,
-  FaChevronRight,
-  FaSun,
-  FaBolt,
-  FaPlug,
-  FaTrain,
-  FaCogs,
-  FaMapMarkerAlt,
   FaFolder,
   FaFolderOpen,
   FaFolderPlus,
+  FaTachometerAlt,
+  FaThermometerHalf,
+  FaWind,
+  FaExclamationTriangle,
+  FaMicrochip,
   FaInfoCircle
 } from 'react-icons/fa';
-import type { User, ScopeGroupItem } from '../../types';
+import type { User, ScopeGroupItem, SmartCoachService, ServiceDevice } from '../../types';
 import { API_URL } from '../../config';
-import { RAILWAY_ZONES, RAILWAY_DATA } from '../Cluster/railwayData';
+import { RAILWAY_ZONES } from '../Cluster/railwayData';
 import { useToast } from '../../context/ToastContext';
 import './ScopeGroupManagement.css';
 
@@ -52,47 +45,31 @@ const authHeaders = () => ({
 });
 
 export default function ScopeGroupManagement({ user }: Props) {
-  const { success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo } = useToast();
-  // If user is assigned to any scope group, or is not a developer, they are restricted to read-only scope view
+  const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
+  
+  // Developer role can manage; assigned operators have read-only scope visibility
   const isAssigned = Boolean(user.scopeGroups && user.scopeGroups.length > 0);
   const canManage = user.role === 'Developer' && !isAssigned;
 
   const [scopeGroups, setScopeGroups] = useState<ScopeGroupItem[]>([]);
-  const [allGates, setAllGates] = useState<any[]>([]);
+  const [allServices, setAllServices] = useState<SmartCoachService[]>([]);
+  const [serviceDevicesMap, setServiceDevicesMap] = useState<Record<string, ServiceDevice[]>>({});
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // View Navigation: 'list' | 'group_detail' | 'gate_detail'
-  const [viewMode, setViewMode] = useState<'list' | 'group_detail' | 'gate_detail'>('list');
+  // View Navigation: 'list' | 'group_detail'
+  const [viewMode, setViewMode] = useState<'list' | 'group_detail'>('list');
   const [activeGroup, setActiveGroup] = useState<ScopeGroupItem | null>(null);
-  const [activeGate, setActiveGate] = useState<any | null>(null);
-  const [activeGateSearch, setActiveGateSearch] = useState('');
-  const [activeGateLoading, setActiveGateLoading] = useState(false);
+  const [detailFilterService, setDetailFilterService] = useState<string>('ALL');
+  const [detailSearchQuery, setDetailSearchQuery] = useState('');
 
-  // Zone/Division reference
+  // Railway Hierarchy references
   const zones = RAILWAY_ZONES;
-  const divisionsByZone = RAILWAY_DATA;
-
-  // Expandable/Collapsible state for folder groups
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<number>>(new Set());
-
-  const toggleExpand = (groupId: number, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setExpandedGroupIds(prev => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
-      }
-      return next;
-    });
-  };
 
   // Modal State for Create / Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalTab, setModalTab] = useState<'details' | 'subgroups' | 'gates' | 'users'>('details');
+  const [modalTab, setModalTab] = useState<'details' | 'services' | 'users'>('details');
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
 
   // Form State
@@ -100,26 +77,23 @@ export default function ScopeGroupManagement({ user }: Props) {
   const [formDesc, setFormDesc] = useState('');
   const [formColor, setFormColor] = useState('#0B3C7A');
   const [formParentId, setFormParentId] = useState<number | null>(null);
-  const [formSubGroupInput, setFormSubGroupInput] = useState('');
-  const [formSubGroupsList, setFormSubGroupsList] = useState<string[]>([]);
-  const [selectedGateIds, setSelectedGateIds] = useState<Set<number>>(new Set());
+  
+  // Smart Coach: Map of serviceSlug -> Set of deviceIds
+  const [selectedServiceDevices, setSelectedServiceDevices] = useState<Map<string, Set<string>>>(new Map());
+  const [activeServiceInPicker, setActiveServiceInPicker] = useState<string>('brake-binding');
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState('');
+  
   const [selectedUserIds, setSelectedUserIds] = useState<Set<number>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Gate Picker Filters
-  const [gateFilterZone, setGateFilterZone] = useState('');
-  const [gateFilterDivision, setGateFilterDivision] = useState('');
-  const [gateSearchQuery, setGateSearchQuery] = useState('');
-
   // User Picker Filters
   const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [userRoleFilter, setUserRoleFilter] = useState('ALL');
 
   // Delete Confirmation Modal
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ScopeGroupItem | null>(null);
 
-  // Fetch Scope Groups
+  // 1. Fetch Scope Groups
   const fetchScopeGroups = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/scope-groups`, { headers: authHeaders() });
@@ -132,20 +106,38 @@ export default function ScopeGroupManagement({ user }: Props) {
     }
   };
 
-  // Fetch all Gates (unrestricted call for Developers/Admins)
-  const fetchAllGates = async () => {
+  // 2. Fetch all Smart Coach Services & their deployed devices
+  const fetchServicesAndDevices = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/v1/lcgate`, { headers: authHeaders() });
+      const res = await fetch(`${API_URL}/api/v1/services`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
-        setAllGates(Array.isArray(data) ? data : []);
+        const servicesList: SmartCoachService[] = data.services || [];
+        setAllServices(servicesList);
+
+        // Fetch devices for each service
+        const devicesMap: Record<string, ServiceDevice[]> = {};
+        await Promise.all(
+          servicesList.map(async (srv) => {
+            try {
+              const devRes = await fetch(`${API_URL}/api/v1/services/${srv.slug}/devices`, { headers: authHeaders() });
+              if (devRes.ok) {
+                const devData = await devRes.json();
+                devicesMap[srv.slug] = devData.accessibleDevices || [];
+              }
+            } catch (err) {
+              console.error(`Failed to fetch devices for ${srv.slug}:`, err);
+            }
+          })
+        );
+        setServiceDevicesMap(devicesMap);
       }
     } catch (err) {
-      console.error('Failed to fetch gates:', err);
+      console.error('Failed to fetch services:', err);
     }
   };
 
-  // Fetch all Users
+  // 3. Fetch all Users
   const fetchAllUsers = async () => {
     try {
       const res = await fetch(`${API_URL}/api/v1/users`, { headers: authHeaders() });
@@ -161,11 +153,7 @@ export default function ScopeGroupManagement({ user }: Props) {
 
   const loadInitialData = async () => {
     setLoading(true);
-    if (canManage) {
-      await Promise.all([fetchScopeGroups(), fetchAllGates(), fetchAllUsers()]);
-    } else {
-      await fetchScopeGroups();
-    }
+    await Promise.all([fetchScopeGroups(), fetchServicesAndDevices(), fetchAllUsers()]);
     setLoading(false);
   };
 
@@ -173,241 +161,70 @@ export default function ScopeGroupManagement({ user }: Props) {
     loadInitialData();
   }, []);
 
+  // Icon Helper for Services
+  const getServiceIcon = (slug: string) => {
+    switch (slug) {
+      case 'brake-binding':
+        return <FaTachometerAlt style={{ color: '#ef4444' }} />;
+      case 'hot-axle':
+        return <FaThermometerHalf style={{ color: '#f59e0b' }} />;
+      case 'bad-odour':
+        return <FaWind style={{ color: '#10b981' }} />;
+      case 'emergency-brake':
+        return <FaExclamationTriangle style={{ color: '#dc2626' }} />;
+      case 'bpc-pressure':
+        return <FaMicrochip style={{ color: '#0284c7' }} />;
+      default:
+        return <FaMicrochip />;
+    }
+  };
+
+  // Helper to resolve parent group
+  const resolveParent = (group: ScopeGroupItem): ScopeGroupItem | null => {
+    if (!group.parentId) return null;
+    return scopeGroups.find(g => g.id === group.parentId) || null;
+  };
+
   // Check if a group represents a Railway Zone
   const isRailwayZone = (name: string) => {
     const lower = name.toLowerCase();
     return lower.includes('railway') || zones.some(z => lower.includes(z.toLowerCase().replace(/s$/, '')));
   };
 
-  // Helper to determine if a group is a child Division/Subgroup under a Zone
-  const isDivisionOrSubGroup = (group: ScopeGroupItem) => {
-    if (group.parentId && scopeGroups.some(p => p.id === group.parentId)) {
-      return true;
-    }
-    const gName = group.name.toLowerCase();
-    for (const potentialParent of scopeGroups) {
-      if (potentialParent.id === group.id) continue;
-      if (isRailwayZone(potentialParent.name)) {
-        const zoneDivs = divisionsByZone[potentialParent.name] || [];
-        const matchesDiv = zoneDivs.some(d => gName.includes(d.toLowerCase())) ||
-          gName.includes('division') ||
-          gName.includes('section');
-        if (matchesDiv) return true;
-      }
-    }
-    return false;
-  };
-
-  // Helper to resolve effective parent for a group
-  const resolveParent = (group: ScopeGroupItem | null): ScopeGroupItem | undefined => {
-    if (!group) return undefined;
-    if (group.parent) return group.parent as ScopeGroupItem;
-    if (group.parentId) {
-      const p = scopeGroups.find(g => g.id === group.parentId);
-      if (p) return p;
-    }
-    const gName = group.name.toLowerCase();
-    for (const zoneGroup of scopeGroups) {
-      if (zoneGroup.id === group.id) continue;
-      if (isRailwayZone(zoneGroup.name)) {
-        const zoneDivs = divisionsByZone[zoneGroup.name] || [];
-        if (zoneDivs.some(d => gName.includes(d.toLowerCase())) || gName.includes('division')) {
-          return zoneGroup;
-        }
-      }
-    }
-    return undefined;
-  };
-
-  // Root Scope Groups (top-level Railway Zones only; divisions will NEVER appear at same time)
+  // Filter root groups
   const rootGroups = useMemo(() => {
-    return scopeGroups.filter(g => !isDivisionOrSubGroup(g));
+    return scopeGroups.filter(g => !g.parentId);
   }, [scopeGroups]);
 
-  // Displayed Scope Groups for List View
-  // When no search query: only show top-level ROOT groups (nested sub-groups appear inside parent folders)
-  // When search query is entered: search across all levels and show matching groups with parent path
-  const displayedGroups = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return rootGroups;
-    return scopeGroups.filter(g => {
-      const parentObj = resolveParent(g);
-      return g.name.toLowerCase().includes(q) ||
-        (g.description && g.description.toLowerCase().includes(q)) ||
-        (parentObj && parentObj.name.toLowerCase().includes(q));
-    });
-  }, [scopeGroups, rootGroups, searchQuery]);
-
-  // Helper to get direct children of any group from loaded scopeGroups
-  const getDirectChildren = (parentId: number) => {
-    const parent = scopeGroups.find(g => g.id === parentId);
-    if (!parent) return [];
-    const isParentZone = isRailwayZone(parent.name);
-    const zoneDivs = divisionsByZone[parent.name] || [];
-
-    return scopeGroups.filter(g => {
-      if (g.id === parentId) return false;
-      if (g.parentId === parentId) return true;
-      if (!g.parentId && isParentZone) {
-        const gName = g.name.toLowerCase();
-        if (zoneDivs.some(d => gName.includes(d.toLowerCase()))) return true;
-        if (gName.includes('division')) {
-          const otherZones = scopeGroups.filter(z => z.id !== parentId && isRailwayZone(z.name));
-          if (otherZones.length === 0) return true;
-        }
-      }
-      return false;
-    });
-  };
-
-  // Helper to get recursive gates across a group and all its descendant groups
-  const getRecursiveGates = (groupId: number) => {
-    const descendantIds = new Set<number>([groupId]);
-    let queue = [groupId];
-    while (queue.length > 0) {
-      const curr = queue.shift()!;
-      const children = getDirectChildren(curr);
-      children.forEach(c => {
-        if (!descendantIds.has(c.id)) {
-          descendantIds.add(c.id);
-          queue.push(c.id);
-        }
-      });
-    }
-    const gateMap = new Map<number, any>();
-    scopeGroups
-      .filter(g => descendantIds.has(g.id))
-      .forEach(g => {
-        g.gates?.forEach(item => {
-          if (!gateMap.has(item.gate.id)) {
-            gateMap.set(item.gate.id, item.gate);
-          }
-        });
-      });
-    return Array.from(gateMap.values());
-  };
-
-  // Breadcrumb path for active group
-  const getBreadcrumbs = (group: ScopeGroupItem | null) => {
-    if (!group) return [];
-    const crumbs: ScopeGroupItem[] = [];
-    let curr: ScopeGroupItem | undefined = group;
-    const visited = new Set<number>();
-    while (curr && !visited.has(curr.id)) {
-      visited.add(curr.id);
-      crumbs.unshift(curr);
-      const parent = resolveParent(curr);
-      if (parent && parent.id !== curr.id) {
-        curr = parent;
-      } else {
-        curr = undefined;
-      }
-    }
-    return crumbs;
-  };
-
-  // Compute Aggregate Stats
+  // Compute stats
   const stats = useMemo(() => {
     const totalGroups = scopeGroups.length;
-    const uniqueScopedGates = new Set<number>();
-    const uniqueUsersInScopes = new Set<number>();
+    let totalDevices = 0;
+    const uniqueUsers = new Set<number>();
+    const activeServiceSlugs = new Set<string>();
 
     scopeGroups.forEach(g => {
-      g.gates?.forEach(item => uniqueScopedGates.add(item.gate.id));
-      g.users?.forEach(item => uniqueUsersInScopes.add(item.user.id));
+      totalDevices += (g.devices?.length || 0);
+      g.devices?.forEach(d => activeServiceSlugs.add(d.serviceSlug));
+      g.users?.forEach(u => uniqueUsers.add(u.user.id));
     });
 
     return {
       totalGroups,
       rootCount: rootGroups.length,
       subGroupCount: Math.max(0, totalGroups - rootGroups.length),
-      totalGates: uniqueScopedGates.size,
-      totalUsers: uniqueUsersInScopes.size
+      activeServicesCount: activeServiceSlugs.size,
+      totalDevices,
+      totalUsers: uniqueUsers.size
     };
   }, [scopeGroups, rootGroups]);
 
-  // Open Group Detail Page
+  // Open Scope Group Details View
   const handleCardClick = (group: ScopeGroupItem) => {
     setActiveGroup(group);
-    setActiveGate(null);
-    setActiveGateSearch('');
+    setDetailFilterService('ALL');
+    setDetailSearchQuery('');
     setViewMode('group_detail');
-  };
-
-  // Open Gate Detail Page
-  const handleGateClick = async (gate: any) => {
-    setActiveGate(gate);
-    setViewMode('gate_detail');
-    setActiveGateLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/v1/lcgate/${gate.id}`, { headers: authHeaders() });
-      if (res.ok) {
-        const fullGate = await res.json();
-        setActiveGate(fullGate);
-      }
-    } catch (err) {
-      console.error('Failed to fetch full gate telemetry:', err);
-    } finally {
-      setActiveGateLoading(false);
-    }
-  };
-
-  // Back to Group Detail
-  const handleBackToGroup = () => {
-    setActiveGate(null);
-    setViewMode('group_detail');
-  };
-
-  // Back to List
-  const handleBackToList = () => {
-    setActiveGroup(null);
-    setActiveGate(null);
-    setViewMode('list');
-  };
-
-  // Keep activeGroup synced if scopeGroups updates
-  useEffect(() => {
-    if (activeGroup) {
-      const found = scopeGroups.find(g => g.id === activeGroup.id);
-      if (found) setActiveGroup(found);
-    }
-  }, [scopeGroups]);
-
-  // Filtered Gates in Active Scope Group
-  const activeGroupGates = useMemo(() => {
-    if (!activeGroup?.gates) return [];
-    const q = activeGateSearch.toLowerCase().trim();
-    if (!q) return activeGroup.gates;
-    return activeGroup.gates.filter(item => {
-      const g = item.gate;
-      const matchName = (g.name || '').toLowerCase().includes(q);
-      const matchLc = (g.lcNumber || '').toLowerCase().includes(q);
-      const matchLoc = (g.locationName || '').toLowerCase().includes(q);
-      const matchZone = (g.zone || '').toLowerCase().includes(q);
-      const matchDiv = (g.division || '').toLowerCase().includes(q);
-      return matchName || matchLc || matchLoc || matchZone || matchDiv;
-    });
-  }, [activeGroup, activeGateSearch]);
-
-  // Sub-Group Builder handlers
-  const handleAddSubGroup = () => {
-    const trimmed = formSubGroupInput.trim();
-    if (!trimmed) return;
-    if (formSubGroupsList.some(s => s.toLowerCase() === trimmed.toLowerCase())) {
-      setFormError(`"${trimmed}" is already queued in the sub-groups list`);
-      return;
-    }
-    if (formName.trim() && formName.trim().toLowerCase() === trimmed.toLowerCase()) {
-      setFormError('A sub-group cannot have the exact same name as its parent group');
-      return;
-    }
-    setFormSubGroupsList(prev => [...prev, trimmed]);
-    setFormSubGroupInput('');
-    setFormError(null);
-  };
-
-  const handleRemoveSubGroup = (index: number) => {
-    setFormSubGroupsList(prev => prev.filter((_, i) => i !== index));
   };
 
   // Open Create Modal
@@ -419,10 +236,8 @@ export default function ScopeGroupManagement({ user }: Props) {
     setFormColor('#0B3C7A');
     const pId = typeof preselectedParentId === 'number' ? preselectedParentId : null;
     setFormParentId(pId);
-    setSelectedGateIds(new Set());
+    setSelectedServiceDevices(new Map());
     setSelectedUserIds(new Set());
-    setFormSubGroupInput('');
-    setFormSubGroupsList([]);
     setFormError(null);
     setModalTab('details');
     setIsModalOpen(true);
@@ -436,90 +251,79 @@ export default function ScopeGroupManagement({ user }: Props) {
     setFormDesc(group.description || '');
     setFormColor(group.color || '#0B3C7A');
     setFormParentId(group.parentId ?? null);
-    setSelectedGateIds(new Set(group.gates?.map(g => g.gate.id) || []));
+
+    // Map existing devices: serviceSlug -> Set of deviceIds
+    const devMap = new Map<string, Set<string>>();
+    (group.devices || []).forEach(d => {
+      if (!devMap.has(d.serviceSlug)) {
+        devMap.set(d.serviceSlug, new Set());
+      }
+      devMap.get(d.serviceSlug)!.add(d.deviceId);
+    });
+
+    setSelectedServiceDevices(devMap);
     setSelectedUserIds(new Set(group.users?.map(u => u.user.id) || []));
-    setFormSubGroupInput('');
-    setFormSubGroupsList([]);
     setFormError(null);
     setModalTab('details');
     setIsModalOpen(true);
   };
 
-  // Filtered Gates in Picker
-  const pickerFilteredGates = useMemo(() => {
-    return allGates.filter(gate => {
-      if (gateFilterZone && gate.zone !== gateFilterZone) return false;
-      if (gateFilterDivision && gate.division !== gateFilterDivision) return false;
-      if (gateSearchQuery) {
-        const q = gateSearchQuery.toLowerCase();
-        const matchName = (gate.name || '').toLowerCase().includes(q);
-        const matchLc = (gate.lcNumber || '').toLowerCase().includes(q);
-        const matchLoc = (gate.locationName || '').toLowerCase().includes(q);
-        if (!matchName && !matchLc && !matchLoc) return false;
+  // Toggle Service Subscription in Picker
+  const toggleServiceSubscription = (slug: string) => {
+    setSelectedServiceDevices(prev => {
+      const next = new Map(prev);
+      if (next.has(slug)) {
+        next.delete(slug);
+      } else {
+        // Select all devices of this service by default
+        const allDevs = serviceDevicesMap[slug] || [];
+        next.set(slug, new Set(allDevs.map(d => d.deviceId)));
       }
-      return true;
-    });
-  }, [allGates, gateFilterZone, gateFilterDivision, gateSearchQuery]);
-
-  // Available Divisions for selected zone in Picker
-  const availableDivisions = useMemo(() => {
-    if (!gateFilterZone) return [];
-    return divisionsByZone[gateFilterZone] || [];
-  }, [gateFilterZone, divisionsByZone]);
-
-  // Toggle Single Gate
-  const toggleGateSelection = (gateId: number) => {
-    setSelectedGateIds(prev => {
-      const next = new Set(prev);
-      if (next.has(gateId)) next.delete(gateId);
-      else next.add(gateId);
       return next;
     });
   };
 
-  // Select / Deselect All Filtered Gates
-  const selectAllFilteredGates = () => {
-    setSelectedGateIds(prev => {
-      const next = new Set(prev);
-      pickerFilteredGates.forEach(g => next.add(g.id));
-      return next;
-    });
-    toastInfo(`Selected all ${pickerFilteredGates.length} filtered gates.`, 'Gates Selected');
-  };
-
-  const deselectAllFilteredGates = () => {
-    setSelectedGateIds(prev => {
-      const next = new Set(prev);
-      pickerFilteredGates.forEach(g => next.delete(g.id));
-      return next;
-    });
-    toastInfo(`Deselected ${pickerFilteredGates.length} filtered gates.`, 'Gates Deselected');
-  };
-
-  // Filtered Users in Picker
-  const pickerFilteredUsers = useMemo(() => {
-    return allUsers.filter(u => {
-      if (userRoleFilter !== 'ALL' && u.role?.name !== userRoleFilter) return false;
-      if (userSearchQuery) {
-        const q = userSearchQuery.toLowerCase();
-        const matchName = (u.fullName || '').toLowerCase().includes(q);
-        const matchEmail = (u.email || '').toLowerCase().includes(q);
-        const matchEmp = (u.employeeId || '').toLowerCase().includes(q);
-        const matchDept = (u.department || '').toLowerCase().includes(q);
-        if (!matchName && !matchEmail && !matchEmp && !matchDept) return false;
+  // Toggle single device within a service
+  const toggleDeviceSelection = (serviceSlug: string, deviceId: string) => {
+    setSelectedServiceDevices(prev => {
+      const next = new Map(prev);
+      if (!next.has(serviceSlug)) {
+        next.set(serviceSlug, new Set([deviceId]));
+      } else {
+        const deviceSet = new Set(next.get(serviceSlug)!);
+        if (deviceSet.has(deviceId)) {
+          deviceSet.delete(deviceId);
+        } else {
+          deviceSet.add(deviceId);
+        }
+        if (deviceSet.size === 0) {
+          next.delete(serviceSlug);
+        } else {
+          next.set(serviceSlug, deviceSet);
+        }
       }
-      return true;
+      return next;
     });
-  }, [allUsers, userRoleFilter, userSearchQuery]);
+  };
 
-  // Available Roles for Filter
-  const userRolesList = useMemo(() => {
-    const roles = new Set<string>();
-    allUsers.forEach(u => {
-      if (u.role?.name) roles.add(u.role.name);
+  // Select all devices for a service
+  const selectAllDevicesForService = (slug: string) => {
+    const devs = serviceDevicesMap[slug] || [];
+    setSelectedServiceDevices(prev => {
+      const next = new Map(prev);
+      next.set(slug, new Set(devs.map(d => d.deviceId)));
+      return next;
     });
-    return Array.from(roles);
-  }, [allUsers]);
+  };
+
+  // Deselect all devices for a service
+  const deselectAllDevicesForService = (slug: string) => {
+    setSelectedServiceDevices(prev => {
+      const next = new Map(prev);
+      next.delete(slug);
+      return next;
+    });
+  };
 
   // Toggle Single User
   const toggleUserSelection = (userId: number) => {
@@ -547,21 +351,29 @@ export default function ScopeGroupManagement({ user }: Props) {
 
     const isEditing = Boolean(editingGroupId);
     const trimmedName = formName.trim();
+
+    // Flatten selected devices payload: [{ serviceSlug, deviceId }]
+    const flatServiceDevices: { serviceSlug: string; deviceId: string }[] = [];
+    selectedServiceDevices.forEach((deviceSet, slug) => {
+      deviceSet.forEach(devId => {
+        flatServiceDevices.push({ serviceSlug: slug, deviceId: devId });
+      });
+    });
+
     const payload = {
       name: trimmedName,
       description: formDesc.trim() || null,
       color: formColor,
       parentId: formParentId,
-      gateIds: Array.from(selectedGateIds),
-      userIds: Array.from(selectedUserIds),
-      subGroupNames: formSubGroupsList
+      serviceDevices: flatServiceDevices,
+      userIds: Array.from(selectedUserIds)
     };
 
     try {
-      const url = editingGroupId
+      const url = isEditing
         ? `${API_URL}/api/v1/scope-groups/${editingGroupId}`
         : `${API_URL}/api/v1/scope-groups`;
-      const method = editingGroupId ? 'PUT' : 'POST';
+      const method = isEditing ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
         method,
@@ -569,22 +381,23 @@ export default function ScopeGroupManagement({ user }: Props) {
         body: JSON.stringify(payload)
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || 'Failed to save scope group');
+        throw new Error(data.error || 'Failed to save Scope Group');
       }
+
+      toastSuccess(
+        isEditing
+          ? `Scope Group "${trimmedName}" updated with ${flatServiceDevices.length} devices across ${selectedServiceDevices.size} services.`
+          : `Created Scope Group "${trimmedName}" with ${flatServiceDevices.length} devices allocated.`,
+        isEditing ? 'Scope Group Updated' : 'Scope Group Created'
+      );
 
       setIsModalOpen(false);
       await fetchScopeGroups();
-      if (isEditing) {
-        toastSuccess(`Scope Group "${trimmedName}" updated successfully.`, 'Group Updated');
-      } else {
-        toastSuccess(`Scope Group "${trimmedName}" created with ${selectedGateIds.size} gates and ${selectedUserIds.size} users.`, 'Group Created');
-      }
     } catch (err: any) {
-      const msg = err.message || 'Error occurred while saving scope group';
-      setFormError(msg);
-      toastError(msg, 'Save Error');
+      setFormError(err.message || 'Error occurred while saving');
+      toastError(err.message || 'Error saving Scope Group', 'Error');
     } finally {
       setSubmitting(false);
     }
@@ -593,1551 +406,850 @@ export default function ScopeGroupManagement({ user }: Props) {
   // Delete Scope Group
   const handleDeleteGroup = async () => {
     if (!deleteConfirmGroup) return;
-    const groupName = deleteConfirmGroup.name;
     try {
       const res = await fetch(`${API_URL}/api/v1/scope-groups/${deleteConfirmGroup.id}`, {
         method: 'DELETE',
         headers: authHeaders()
       });
-      if (res.ok) {
-        setDeleteConfirmGroup(null);
-        await fetchScopeGroups();
-        toastSuccess(`Scope Group "${groupName}" deleted successfully.`, 'Group Deleted');
-      } else {
-        const data = await res.json().catch(() => ({}));
-        toastError(data.error || 'Failed to delete scope group', 'Delete Failed');
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete Scope Group');
       }
+      toastSuccess(`Scope Group "${deleteConfirmGroup.name}" deleted.`, 'Deleted');
+      setDeleteConfirmGroup(null);
+      if (activeGroup?.id === deleteConfirmGroup.id) {
+        setViewMode('list');
+        setActiveGroup(null);
+      }
+      await fetchScopeGroups();
     } catch (err: any) {
-      console.error(err);
-      toastError(err.message || 'Network error while deleting scope group.', 'Delete Error');
+      toastError(err.message || 'Error deleting group', 'Error');
     }
   };
 
   return (
     <div className="sg-container">
-      {/* 1. SCOPE GROUPS LIST VIEW */}
+      {/* Header */}
+      <div className="sg-header">
+        <div className="sg-header-titles">
+          <h2>
+            <FaLayerGroup /> Scope Group Management
+          </h2>
+          <p>
+            Define railway zonal and divisional scopes, allocate Smart Coach services and devices, and govern operator access.
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {!canManage && (
+            <div className="sg-readonly-badge">
+              <FaInfoCircle color="var(--primary)" />
+              <span>Assigned Scope View (Restricted by Role)</span>
+            </div>
+          )}
+
+          {canManage && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => handleOpenCreate()}
+              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+            >
+              <FaPlus /> Create Scope Group
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Aggregate Stats Cards */}
+      <div className="sg-stats-grid">
+        <div className="sg-stat-card">
+          <div className="sg-stat-label">TOTAL SCOPE GROUPS</div>
+          <div className="sg-stat-value">{stats.totalGroups}</div>
+          <div className="sg-stat-sub">{stats.rootCount} Zones / Roots &bull; {stats.subGroupCount} Divisions</div>
+        </div>
+
+        <div className="sg-stat-card">
+          <div className="sg-stat-label">ACTIVE SERVICES ALLOCATED</div>
+          <div className="sg-stat-value" style={{ color: '#0284c7' }}>
+            {stats.activeServicesCount} / {allServices.length}
+          </div>
+          <div className="sg-stat-sub">Brake Binding, Bad Odour, Hot Axle, etc.</div>
+        </div>
+
+        <div className="sg-stat-card">
+          <div className="sg-stat-label">TOTAL ROLLING STOCK DEVICES</div>
+          <div className="sg-stat-value" style={{ color: '#10b981' }}>
+            {stats.totalDevices}
+          </div>
+          <div className="sg-stat-sub">Hardware units mapped to scopes</div>
+        </div>
+
+        <div className="sg-stat-card">
+          <div className="sg-stat-label">ASSIGNED TEAM MEMBERS</div>
+          <div className="sg-stat-value" style={{ color: '#8b5cf6' }}>
+            {stats.totalUsers}
+          </div>
+          <div className="sg-stat-sub">Operators & Officers in scopes</div>
+        </div>
+      </div>
+
+      {/* MAIN VIEW: LIST OF SCOPE GROUPS */}
       {viewMode === 'list' && (
-        <>
-          {/* Header */}
-          <div className="sg-header">
-            <div className="sg-header-titles">
-              <h2>
-                <FaLayerGroup /> {canManage ? 'Scope Groups Console' : 'My Assigned Scope Groups'}
-              </h2>
-              <p>
-                {canManage
-                  ? 'Create granular access groups. Manually assign specific clusters & LC gates to designated team members.'
-                  : 'View the scope groups and LC gates assigned to your account. Your operational access is restricted to these gates.'}
-              </p>
-            </div>
-            {canManage ? (
-              <button className="btn btn-primary" onClick={handleOpenCreate}>
-                <FaPlus /> Create Scope Group
-              </button>
-            ) : (
-              <div className="sg-readonly-badge">
-                <FaLock style={{ color: '#0B3C7A' }} /> Assigned Member • Read-Only
-              </div>
-            )}
-          </div>
-
-          {/* Stats Cards */}
-          <div className="sg-stats-grid">
-            <div className="sg-stat-card">
-              <div className="sg-stat-icon primary">
-                <FaLayerGroup />
-              </div>
-              <div className="sg-stat-info">
-                <h3>{stats.totalGroups}</h3>
-                <span>Total Scope Groups</span>
-              </div>
-            </div>
-
-            <div className="sg-stat-card">
-              <div className="sg-stat-icon teal">
-                <FaMicrochip />
-              </div>
-              <div className="sg-stat-info">
-                <h3>{stats.totalGates}</h3>
-                <span>Unique Scoped Gates</span>
-              </div>
-            </div>
-
-            {canManage && (
-              <div className="sg-stat-card">
-                <div className="sg-stat-icon amber">
-                  <FaUsers />
-                </div>
-                <div className="sg-stat-info">
-                  <h3>{stats.totalUsers}</h3>
-                  <span>Assigned Users</span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Toolbar */}
-          <div className="sg-toolbar">
-            <div className="sg-search-box">
-              <FaSearch color="#94a3b8" />
+        <div className="card" style={{ padding: 24, borderRadius: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <h3 style={{ margin: 0, color: '#1e293b', fontWeight: 800 }}>Railway Scope Hierarchy</h3>
+            <div style={{ position: 'relative', width: 280 }}>
+              <FaSearch style={{ position: 'absolute', left: 12, top: 12, color: '#94a3b8' }} />
               <input
                 type="text"
-                placeholder="Search scope groups by name or description..."
+                placeholder="Search Scope Groups..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px 8px 36px', borderRadius: 8, border: '1px solid var(--border)' }}
               />
-              {searchQuery && (
-                <button
-                  onClick={() => {
-                    setSearchQuery('');
-                    toastInfo('Scope group search filter cleared.', 'Search Reset');
-                  }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
-                >
-                  <FaTimes />
-                </button>
-              )}
             </div>
-
-            <button
-              className="btn btn-secondary"
-              onClick={async () => {
-                await loadInitialData();
-                toastInfo('Scope groups catalog and assignments updated.', 'Refreshed');
-              }}
-              title="Refresh data"
-            >
-              <FaSyncAlt /> Refresh
-            </button>
           </div>
 
-          {/* Groups Grid */}
           {loading ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--muted)' }}>
-              <FaSyncAlt className="spin" size={32} style={{ marginBottom: 12, color: 'var(--primary)' }} />
-              <div>Loading scope groups...</div>
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: '#64748b' }}>
+              <p>Loading Scope Groups...</p>
             </div>
-          ) : displayedGroups.length === 0 ? (
-            <div className="sg-empty-state">
-              <FaLayerGroup className="sg-empty-icon" />
-              <h3 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>
-                {searchQuery
-                  ? 'No scope groups match your search'
-                  : canManage
-                  ? 'No Scope Groups Created Yet'
-                  : 'No Scope Groups Assigned'}
-              </h3>
-              <p style={{ margin: '0 0 18px 0', maxWidth: 440, marginLeft: 'auto', marginRight: 'auto' }}>
-                {searchQuery
-                  ? 'Try adjusting your search keywords.'
-                  : canManage
-                  ? 'Create your first Scope Group to manually bundle LC Gates and assign them to specific users.'
-                  : 'No scope groups are currently assigned to your account. Please contact an administrator to get access.'}
-              </p>
-              {!searchQuery && canManage && (
-                <button className="btn btn-primary" onClick={handleOpenCreate}>
-                  <FaPlus /> Create Your First Scope Group
+          ) : scopeGroups.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: '#64748b' }}>
+              <FaFolderOpen size={48} style={{ color: '#cbd5e1', marginBottom: 12 }} />
+              <h4>No Scope Groups Defined</h4>
+              <p>Create zonal and divisional scope groups to allocate rolling-stock monitoring services and devices.</p>
+              {canManage && (
+                <button type="button" className="btn btn-primary" onClick={() => handleOpenCreate()}>
+                  <FaPlus style={{ marginRight: 6 }} /> Create First Scope Group
                 </button>
               )}
             </div>
           ) : (
-            <div className="sg-groups-grid">
-              {displayedGroups.map(group => {
-                const childSubGroups = getDirectChildren(group.id);
-                const directGateCount = group.gates?.length || group._count?.gates || 0;
-                const recursiveGates = getRecursiveGates(group.id);
-                const userCount = group.users?.length || group._count?.users || 0;
-                const isExpanded = expandedGroupIds.has(group.id);
-                const previewGates = group.gates?.slice(0, 4) || [];
-                const remainingGates = directGateCount - previewGates.length;
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+              {scopeGroups
+                .filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase()) || (g.description && g.description.toLowerCase().includes(searchQuery.toLowerCase())))
+                .map((group) => {
+                  const parentGroup = resolveParent(group);
+                  const isZone = isRailwayZone(group.name);
 
-                return (
-                  <div
-                    key={group.id}
-                    className="sg-group-card sg-clickable-card"
-                    onClick={() => handleCardClick(group)}
-                    title="Click to view included gates and devices"
-                  >
+                  // Extract services assigned to this group
+                  const serviceCounts: Record<string, number> = {};
+                  (group.devices || []).forEach(d => {
+                    serviceCounts[d.serviceSlug] = (serviceCounts[d.serviceSlug] || 0) + 1;
+                  });
+
+                  return (
                     <div
-                      className="sg-card-stripe"
-                      style={{ backgroundColor: group.color || '#0B3C7A' }}
-                    />
-
-                    <div className="sg-card-top">
+                      key={group.id}
+                      className="card"
+                      style={{
+                        padding: 20,
+                        borderRadius: 14,
+                        border: '1px solid #e2e8f0',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        borderLeft: `5px solid ${group.color || '#0B3C7A'}`
+                      }}
+                      onClick={() => handleCardClick(group)}
+                    >
                       <div>
-                        {(() => {
-                          const p = resolveParent(group);
-                          return p ? (
-                            <div style={{ marginBottom: 4 }}>
-                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', padding: '2px 8px', borderRadius: 4 }}>
-                                <FaFolder size={11} color="#64748b" /> {p.name} /
-                              </span>
-                            </div>
-                          ) : (
-                            <div style={{ marginBottom: 4 }}>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0369a1', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#e0f2fe', padding: '2px 8px', borderRadius: 4 }}>
-                                <FaFolderOpen size={11} color="#0369a1" /> Railway Zone (Main Scope)
-                              </span>
-                            </div>
-                          );
-                        })()}
-                        <h3 className="sg-card-title">{group.name}</h3>
-                      </div>
-                    </div>
-
-                    <p className="sg-card-desc">
-                      {group.description || 'No description provided.'}
-                    </p>
-
-                    <div className="sg-card-meta">
-                      <span className="sg-pill gates">
-                        <FaMicrochip /> {directGateCount} {directGateCount === 1 ? 'Gate' : 'Gates'}
-                      </span>
-                      {childSubGroups.length > 0 && (
-                        <button
-                          type="button"
-                          className="sg-pill"
-                          style={{
-                            background: '#ede9fe',
-                            color: '#6d28d9',
-                            borderColor: '#ddd6fe',
-                            cursor: 'pointer'
-                          }}
-                          onClick={(e) => toggleExpand(group.id, e)}
-                          title="Click to expand/collapse nested sub-groups"
-                        >
-                          <FaFolderPlus /> {childSubGroups.length} {childSubGroups.length === 1 ? 'Sub-Division' : 'Sub-Divisions'} {isExpanded ? '▴' : '▾'}
-                        </button>
-                      )}
-                      {canManage && (
-                        <span className="sg-pill users">
-                          <FaUsers /> {userCount} {userCount === 1 ? 'User' : 'Users'}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Expandable/Collapsible Sub-Groups Section right inside the card */}
-                    {childSubGroups.length > 0 && (
-                      <div
-                        className="sg-card-folder-toggle"
-                        onClick={(e) => toggleExpand(group.id, e)}
-                        title={isExpanded ? 'Click to collapse nested folders' : 'Click to expand nested folders'}
-                      >
-                        <div className="sg-folder-toggle-left">
-                          {isExpanded ? <FaFolderOpen color="#6366f1" /> : <FaFolder color="#6366f1" />}
-                          <span>
-                            <strong>{childSubGroups.length}</strong> {childSubGroups.length === 1 ? 'Sub-Group' : 'Sub-Groups'} ({recursiveGates.length} total gates)
-                          </span>
+                        {parentGroup && (
+                          <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <FaFolder size={11} /> {parentGroup.name} &rsaquo;
+                          </div>
+                        )}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                          <h4 style={{ margin: 0, color: '#1e293b', fontSize: '1.15rem', fontWeight: 800 }}>
+                            {group.name}
+                          </h4>
+                          {isZone && (
+                            <span className="badge" style={{ backgroundColor: 'rgba(11, 60, 122, 0.08)', color: 'var(--primary)', fontSize: '0.72rem' }}>
+                              Railway Zone
+                            </span>
+                          )}
                         </div>
-                        <span className="sg-folder-toggle-indicator">
-                          {isExpanded ? 'Collapse ▴' : 'Expand Folder ▾'}
-                        </span>
-                      </div>
-                    )}
 
-                    {isExpanded && childSubGroups.length > 0 && (
-                      <div className="sg-nested-subgroups-drawer" onClick={(e) => e.stopPropagation()}>
-                        <div className="sg-drawer-header">
-                          <span className="sg-drawer-title">
-                            <FaFolderOpen color="#6366f1" /> Sub-Divisions in {group.name}
-                          </span>
-                          {canManage && (
+                        {group.description && (
+                          <p style={{ fontSize: '0.84rem', color: '#64748b', margin: '0 0 14px 0', lineHeight: 1.4 }}>
+                            {group.description}
+                          </p>
+                        )}
+
+                        {/* Allocated Services Badges */}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                          {Object.keys(serviceCounts).length === 0 ? (
+                            <span className="badge" style={{ backgroundColor: '#f1f5f9', color: '#94a3b8', fontSize: '0.72rem' }}>
+                              No Services Allocated
+                            </span>
+                          ) : (
+                            Object.entries(serviceCounts).map(([slug, count]) => {
+                              const srv = allServices.find(s => s.slug === slug);
+                              return (
+                                <span
+                                  key={slug}
+                                  className="badge"
+                                  style={{
+                                    backgroundColor: '#f8fafc',
+                                    border: '1px solid #e2e8f0',
+                                    color: '#1e293b',
+                                    fontSize: '0.74rem',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 5
+                                  }}
+                                >
+                                  {getServiceIcon(slug)}
+                                  <strong>{srv?.shortCode || slug}</strong>: {count} devs
+                                </span>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 600 }}>
+                          <FaUsers style={{ marginRight: 6, color: '#8b5cf6' }} />
+                          {group.users?.length || 0} Members
+                        </span>
+
+                        {canManage && (
+                          <div style={{ display: 'flex', gap: 8 }} onClick={(e) => e.stopPropagation()}>
                             <button
                               type="button"
-                              className="btn btn-xs btn-secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenCreate(group.id);
-                              }}
-                              title={`Create a sub-group directly in ${group.name}`}
-                              style={{ color: '#0B3C7A' }}
+                              className="btn btn-sm btn-outline"
+                              onClick={() => handleOpenCreate(group.id)}
+                              title="Add sub-division under this group"
                             >
-                              <FaPlus /> Sub-Group
+                              <FaFolderPlus />
                             </button>
-                          )}
-                        </div>
-
-                        <div className="sg-nested-subgroups-list">
-                          {childSubGroups.map(child => {
-                            const grandChildren = getDirectChildren(child.id);
-                            const childGateCount = child.gates?.length || child._count?.gates || 0;
-                            const childPreviewGates = child.gates?.slice(0, 3) || [];
-                            const isChildExpanded = expandedGroupIds.has(child.id);
-
-                            return (
-                              <div
-                                key={child.id}
-                                className="sg-nested-subgroup-card"
-                                onClick={() => handleCardClick(child)}
-                              >
-                                <div className="sg-nested-card-top">
-                                  <div className="sg-nested-card-left">
-                                    <span
-                                      className="sg-folder-icon-circle"
-                                      style={{
-                                        backgroundColor: `${child.color || group.color || '#0B3C7A'}15`,
-                                        color: child.color || group.color || '#0B3C7A'
-                                      }}
-                                    >
-                                      <FaFolder />
-                                    </span>
-                                    <div>
-                                      <h4 className="sg-nested-card-title">{child.name}</h4>
-                                      {child.description && (
-                                        <p className="sg-nested-card-desc">{child.description}</p>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <div className="sg-nested-card-badges">
-                                    <span className="sg-pill gates">
-                                      <FaMicrochip size={10} /> {childGateCount} {childGateCount === 1 ? 'Gate' : 'Gates'}
-                                    </span>
-                                    {grandChildren.length > 0 && (
-                                      <button
-                                        type="button"
-                                        className="sg-pill"
-                                        style={{ background: '#ede9fe', color: '#6d28d9', cursor: 'pointer', border: 'none' }}
-                                        onClick={(e) => toggleExpand(child.id, e)}
-                                      >
-                                        <FaFolderPlus size={10} /> {grandChildren.length} Sub {isChildExpanded ? '▴' : '▾'}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Child Gate Chips Preview */}
-                                {childGateCount > 0 && (
-                                  <div className="sg-nested-preview-chips">
-                                    {childPreviewGates.map(item => (
-                                      <span key={item.gate.id} className="sg-gate-chip">
-                                        {item.gate.lcNumber}
-                                      </span>
-                                    ))}
-                                    {childGateCount > childPreviewGates.length && (
-                                      <span className="sg-more-chip">+{childGateCount - childPreviewGates.length}</span>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* GrandChildren (Subgroup within Subgroup) */}
-                                {isChildExpanded && grandChildren.length > 0 && (
-                                  <div className="sg-grandchild-drawer" onClick={e => e.stopPropagation()}>
-                                    <div style={{ fontSize: '0.74rem', fontWeight: 700, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <FaFolderOpen size={11} color="#8b5cf6" /> Sub-Units in {child.name}:
-                                    </div>
-                                    {grandChildren.map(gc => (
-                                      <div
-                                        key={gc.id}
-                                        className="sg-grandchild-item"
-                                        onClick={() => handleCardClick(gc)}
-                                      >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                          <FaFolder size={11} color="#8b5cf6" />
-                                          <strong>{gc.name}</strong>
-                                        </div>
-                                        <span className="sg-pill gates" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>
-                                          {gc.gates?.length || gc._count?.gates || 0} Gates
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* Child Card Footer Actions */}
-                                <div className="sg-nested-card-footer" onClick={e => e.stopPropagation()}>
-                                  <span
-                                    style={{ fontSize: '0.78rem', color: '#0B3C7A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
-                                    onClick={() => handleCardClick(child)}
-                                  >
-                                    Open Sub-Division <FaChevronRight size={10} />
-                                  </span>
-                                  {canManage && (
-                                    <div style={{ display: 'flex', gap: 6 }}>
-                                      <button
-                                        type="button"
-                                        className="btn btn-xs btn-secondary"
-                                        onClick={() => handleOpenCreate(child.id)}
-                                        title={`Add sub-group inside ${child.name}`}
-                                      >
-                                        <FaPlus size={10} /> Sub-Group
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn btn-xs btn-secondary"
-                                        onClick={() => handleOpenEdit(child)}
-                                        title="Edit sub-group"
-                                      >
-                                        <FaEdit size={10} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="btn btn-xs"
-                                        style={{ color: '#ef4444', borderColor: '#fecaca', background: '#fef2f2' }}
-                                        onClick={() => setDeleteConfirmGroup(child)}
-                                        title="Delete sub-group"
-                                      >
-                                        <FaTrash size={10} />
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => handleOpenEdit(group)}
+                              title="Edit group"
+                            >
+                              <FaEdit />
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-outline"
+                              onClick={() => setDeleteConfirmGroup(group)}
+                              style={{ color: '#ef4444' }}
+                              title="Delete group"
+                            >
+                              <FaTrash />
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-
-                    {/* Direct Gate Preview for this card */}
-                    <div className="sg-gates-preview">
-                      <div className="sg-preview-label">Direct Included Gates</div>
-                      {directGateCount === 0 ? (
-                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
-                          {childSubGroups.length > 0
-                            ? 'Assigned via sub-divisions above'
-                            : 'No gates assigned directly'}
-                        </span>
-                      ) : (
-                        <div className="sg-preview-chips">
-                          {previewGates.map(item => (
-                            <span key={item.gate.id} className="sg-gate-chip">
-                              {item.gate.lcNumber}
-                              {item.gate.locationName ? ` (${item.gate.locationName})` : ''}
-                            </span>
-                          ))}
-                          {remainingGates > 0 && (
-                            <span className="sg-more-chip">+{remainingGates} more</span>
-                          )}
-                        </div>
-                      )}
                     </div>
-
-                    {/* Open Hint CTA */}
-                    <div className="sg-card-footer-cta">
-                      <span>View Scope Group & Gates ({directGateCount})</span>
-                      <FaChevronRight size={13} />
-                    </div>
-
-                    {/* Admin Actions */}
-                    {canManage && (
-                      <div
-                        className="sg-card-actions"
-                        style={{ marginTop: 12 }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-secondary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenCreate(group.id);
-                          }}
-                          title="Create a child Sub-Division inside this Scope Group"
-                          style={{ color: '#0B3C7A' }}
-                        >
-                          <FaPlus /> Sub-Group
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-secondary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenEdit(group);
-                          }}
-                          title="Edit scope group"
-                        >
-                          <FaEdit /> Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          style={{ color: '#ef4444', borderColor: '#fecaca', background: '#fef2f2' }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirmGroup(group);
-                          }}
-                          title="Delete scope group"
-                        >
-                          <FaTrash />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
-        </>
+        </div>
       )}
 
-      {/* 2. DEDICATED SCOPE GROUP DETAIL PAGE */}
+      {/* DETAIL VIEW FOR A SPECIFIC SCOPE GROUP */}
       {viewMode === 'group_detail' && activeGroup && (
-        <div className="sg-group-detail-view fade-in">
-          {/* Breadcrumb Bar */}
-          <div className="sg-view-header">
-            <div className="sg-breadcrumb-bar">
-              <button className="btn btn-secondary btn-sm" onClick={handleBackToList}>
-                <FaArrowLeft /> Back
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {/* Header Card with Breadcrumb Navigation */}
+          <div className="card" style={{ padding: '20px 24px', borderRadius: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setViewMode('list')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              >
+                <FaArrowLeft /> Back to Scope Groups
               </button>
-              <span className="sg-breadcrumb-crumb" onClick={handleBackToList}>Scope Groups</span>
-              {getBreadcrumbs(activeGroup).map((crumb, idx, arr) => (
-                <React.Fragment key={crumb.id}>
-                  <span className="sg-breadcrumb-sep">/</span>
-                  {idx === arr.length - 1 ? (
-                    <span className="sg-breadcrumb-active">{crumb.name}</span>
-                  ) : (
-                    <span
-                      className="sg-breadcrumb-crumb"
-                      onClick={() => {
-                        setActiveGroup(crumb);
-                        setActiveGate(null);
-                        setActiveGateSearch('');
-                      }}
-                    >
-                      {crumb.name}
-                    </span>
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
-            {canManage && (
-              <button className="btn btn-secondary btn-sm" onClick={() => handleOpenEdit(activeGroup)}>
-                <FaEdit /> Edit Scope Group
-              </button>
-            )}
-          </div>
 
-          {/* Group Hero Card */}
-          <div className="sg-group-hero">
-            <div className="sg-hero-stripe" style={{ backgroundColor: activeGroup.color || '#0B3C7A' }} />
-            <div className="sg-hero-body">
-              <div className="sg-hero-title-row">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="sg-color-dot" style={{ backgroundColor: activeGroup.color || '#0B3C7A' }} />
-                  <div>
-                    {resolveParent(activeGroup) && (
-                      <div style={{ marginBottom: 4 }}>
-                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', padding: '2px 8px', borderRadius: 4 }}>
-                          <FaFolder size={11} color="#64748b" /> {resolveParent(activeGroup)?.name} /
-                        </span>
-                      </div>
-                    )}
-                    <h2 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, color: '#0f172a' }}>
-                      {activeGroup.name}
-                    </h2>
-                  </div>
-                </div>
+              {canManage && (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <span className="sg-pill gates">
-                    <FaMicrochip /> {activeGroup.gates?.length || 0} Direct {activeGroup.gates?.length === 1 ? 'Gate' : 'Gates'}
-                  </span>
-                  {getDirectChildren(activeGroup.id).length > 0 && (
-                    <span className="sg-pill" style={{ background: '#ede9fe', color: '#6d28d9', borderColor: '#ddd6fe' }}>
-                      <FaFolderPlus /> {getDirectChildren(activeGroup.id).length} Sub-Divisions
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => handleOpenEdit(activeGroup)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <FaEdit /> Edit Scope Allocation
+                  </button>
                 </div>
-              </div>
+              )}
+            </div>
 
-              <p className="sg-hero-desc">
-                {activeGroup.description || 'No description provided for this scope group.'}
+            <div style={{ borderLeft: `6px solid ${activeGroup.color || '#0B3C7A'}`, paddingLeft: 16 }}>
+              <h2 style={{ margin: '0 0 6px 0', color: '#1e293b', fontWeight: 800 }}>
+                {activeGroup.name}
+              </h2>
+              <p className="text-muted" style={{ margin: 0, fontSize: '0.92rem' }}>
+                {activeGroup.description || 'Dedicated rolling stock service scope group.'}
               </p>
-
-              {/* Hardware Metrics Summary */}
-              <div className="sg-hero-stats">
-                <div className="sg-hero-stat-item">
-                  <span className="sg-hero-stat-val">{activeGroup.gates?.length || 0}</span>
-                  <span className="sg-hero-stat-lbl">Direct LC Gates</span>
-                </div>
-                <div className="sg-hero-stat-item">
-                  <span className="sg-hero-stat-val">{getRecursiveGates(activeGroup.id).length}</span>
-                  <span className="sg-hero-stat-lbl">Total Hierarchy Gates</span>
-                </div>
-                <div className="sg-hero-stat-item">
-                  <span className="sg-hero-stat-val">
-                    {activeGroup.gates?.reduce((acc, g) => acc + (g.gate.masters?.length || 0), 0) || 0}
-                  </span>
-                  <span className="sg-hero-stat-lbl">Connected Masters</span>
-                </div>
-                <div className="sg-hero-stat-item">
-                  <span className="sg-hero-stat-val">
-                    {activeGroup.gates?.reduce(
-                      (acc, g) =>
-                        acc +
-                        (g.gate.masters?.reduce((mAcc, m) => mAcc + (m.childDevices?.length || 0), 0) || 0),
-                      0
-                    ) || 0}
-                  </span>
-                  <span className="sg-hero-stat-lbl">Total Slave Devices</span>
-                </div>
-              </div>
             </div>
           </div>
 
-          {/* Sub-Divisions & Child Folders Section */}
-          {(() => {
-            const activeChildren = getDirectChildren(activeGroup.id);
-            return (
-              <div className="sg-subgroups-section">
-                <div className="sg-section-header" style={{ marginBottom: 14 }}>
-                  <div>
-                    <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <FaFolderOpen style={{ color: activeGroup.color || '#0B3C7A' }} />
-                      Sub-Divisions & Child Folders ({activeChildren.length})
-                    </h3>
-                    <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b' }}>
-                      Scope groups nested inside {activeGroup.name}. Users assigned to {activeGroup.name} automatically have access to all clusters inside these sub-divisions.
-                    </p>
-                  </div>
-                  {canManage && (
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-primary"
-                      onClick={() => handleOpenCreate(activeGroup.id)}
-                    >
-                      <FaPlus /> Add Sub-Division
-                    </button>
-                  )}
-                </div>
+          {/* Allocated Smart Coach Services & Devices */}
+          <div className="card" style={{ padding: 24, borderRadius: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#1e293b', fontWeight: 800 }}>
+                  Allocated Smart Coach Services & Devices ({activeGroup.devices?.length || 0})
+                </h3>
+                <p className="text-muted" style={{ margin: '4px 0 0 0', fontSize: '0.85rem' }}>
+                  Hardware units visible to users assigned to this scope.
+                </p>
+              </div>
 
-                {activeChildren.length === 0 ? (
-                  <div className="sg-subgroups-empty">
-                    <FaFolder style={{ color: '#94a3b8', fontSize: '1.4rem' }} />
-                    <span>No nested sub-divisions in this scope group yet.</span>
-                    {canManage && (
+              {/* Search & Service Filter Tabs */}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', width: 220 }}>
+                  <FaSearch style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />
+                  <input
+                    type="text"
+                    placeholder="Search devices..."
+                    value={detailSearchQuery}
+                    onChange={(e) => setDetailSearchQuery(e.target.value)}
+                    style={{ width: '100%', padding: '6px 10px 6px 30px', borderRadius: 6, border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${detailFilterService === 'ALL' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setDetailFilterService('ALL')}
+                  >
+                    All Services
+                  </button>
+                  {allServices.map(srv => {
+                    const count = (activeGroup.devices || []).filter(d => d.serviceSlug === srv.slug).length;
+                    if (count === 0) return null;
+                    return (
                       <button
+                        key={srv.slug}
                         type="button"
-                        className="btn btn-xs btn-outline-primary"
-                        onClick={() => handleOpenCreate(activeGroup.id)}
+                        className={`btn btn-sm ${detailFilterService === srv.slug ? 'btn-primary' : 'btn-outline'}`}
+                        onClick={() => setDetailFilterService(srv.slug)}
                       >
-                        <FaPlus /> Create First Sub-Division
+                        {srv.shortCode} ({count})
                       </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="sg-nested-subgroups-grid">
-                    {activeChildren.map(child => {
-                      const childGateCount = child.gates?.length || child._count?.gates || 0;
-                      const childGrandChildren = getDirectChildren(child.id);
-                      const childPreview = child.gates?.slice(0, 3) || [];
-                      return (
-                        <div
-                          key={child.id}
-                          className="sg-subdivision-card"
-                          onClick={() => {
-                            setActiveGroup(child);
-                            setActiveGate(null);
-                            setActiveGateSearch('');
-                          }}
-                        >
-                          <div className="sg-subdivision-header">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span className="sg-folder-icon-circle" style={{ backgroundColor: `${child.color || activeGroup.color || '#0B3C7A'}15`, color: child.color || activeGroup.color || '#0B3C7A' }}>
-                                <FaFolder />
-                              </span>
-                              <strong style={{ fontSize: '1.02rem', color: '#0f172a' }}>{child.name}</strong>
-                            </div>
-                            <span className="sg-pill gates">
-                              <FaMicrochip size={11} /> {childGateCount} Gates
-                            </span>
-                          </div>
-                          <p style={{ margin: '6px 0 10px 0', fontSize: '0.82rem', color: '#64748b' }}>
-                            {child.description || 'No description provided.'}
-                          </p>
-                          {childPreview.length > 0 && (
-                            <div className="sg-nested-preview-chips" style={{ marginBottom: 8 }}>
-                              {childPreview.map(item => (
-                                <span key={item.gate.id} className="sg-gate-chip">
-                                  {item.gate.lcNumber}
-                                </span>
-                              ))}
-                              {childGateCount > childPreview.length && (
-                                <span className="sg-more-chip">+{childGateCount - childPreview.length}</span>
-                              )}
-                            </div>
-                          )}
-                          {childGrandChildren.length > 0 && (
-                            <div style={{ fontSize: '0.78rem', color: '#6d28d9', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 8 }}>
-                              <FaFolderPlus size={11} /> {childGrandChildren.length} Nested Sub-Unit{childGrandChildren.length > 1 ? 's' : ''}
-                            </div>
-                          )}
-                          <div className="sg-subdivision-footer">
-                            <span style={{ fontSize: '0.8rem', color: '#0B3C7A', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                              Open Sub-Division <FaChevronRight size={10} />
-                            </span>
-                            {canManage && (
-                              <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  className="btn btn-xs btn-secondary"
-                                  onClick={() => handleOpenCreate(child.id)}
-                                  title="Add sub-group inside this division"
-                                >
-                                  <FaPlus size={10} /> Sub-Group
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-xs btn-secondary"
-                                  onClick={() => handleOpenEdit(child)}
-                                  title="Edit division"
-                                >
-                                  <FaEdit size={10} />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {(!activeGroup.devices || activeGroup.devices.length === 0) ? (
+              <div style={{ textAlign: 'center', padding: '36px 16px', color: '#94a3b8' }}>
+                <FaMicrochip size={36} style={{ marginBottom: 8, color: '#cbd5e1' }} />
+                <p>No services or devices have been allocated to this Scope Group yet.</p>
+                {canManage && (
+                  <button type="button" className="btn btn-outline" onClick={() => handleOpenEdit(activeGroup)}>
+                    Configure Services & Devices
+                  </button>
                 )}
               </div>
-            );
-          })()}
-
-          {/* Included Gates Section */}
-          <div className="sg-section-header">
-            <div>
-              <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', fontWeight: 700, color: '#1e293b' }}>
-                Included LC Gates ({activeGroupGates.length})
-              </h3>
-              <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b' }}>
-                Click on any gate card below to inspect its connected master units and slave devices.
-              </p>
-            </div>
-            <div className="sg-search-box" style={{ maxWidth: 320 }}>
-              <FaSearch color="#94a3b8" />
-              <input
-                type="text"
-                placeholder="Filter gates in this scope..."
-                value={activeGateSearch}
-                onChange={(e) => setActiveGateSearch(e.target.value)}
-              />
-              {activeGateSearch && (
-                <button
-                  onClick={() => setActiveGateSearch('')}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
-                >
-                  <FaTimes />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {activeGroupGates.length === 0 ? (
-            <div className="sg-empty-state" style={{ padding: 48 }}>
-              <FaMicrochip className="sg-empty-icon" />
-              <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>
-                {activeGateSearch ? 'No matching gates found' : 'No Gates in this Scope Group'}
-              </h4>
-              <p style={{ margin: 0 }}>
-                {activeGateSearch
-                  ? 'Try adjusting your search query.'
-                  : 'This scope group does not have any LC gates assigned yet.'}
-              </p>
-            </div>
-          ) : (
-            <div className="sg-scope-gates-grid">
-              {activeGroupGates.map(item => {
-                const g = item.gate;
-                const mastersCount = g.masters?.length || 0;
-                const slavesCount =
-                  g.masters?.reduce((acc: number, m: any) => acc + (m.childDevices?.length || 0), 0) || 0;
-                return (
-                  <div
-                    key={g.id}
-                    className="sg-scope-gate-card"
-                    onClick={() => handleGateClick(g)}
-                  >
-                    <div>
-                      <div className="sg-gate-card-header">
-                        <div className="sg-gate-badge">
-                          <FaMicrochip /> {g.lcNumber}
-                        </div>
-                        <span className="sg-gate-chevron">
-                          Inspect Devices <FaChevronRight size={11} />
-                        </span>
-                      </div>
-
-                      <h4 className="sg-gate-location-title">
-                        {g.locationName || g.name || 'LC Gate'}
-                      </h4>
-
-                      <div className="sg-gate-location-sub">
-                        <FaTrain style={{ color: '#0B3C7A' }} /> {g.zone || 'Zone N/A'} • {g.division || 'Division N/A'}
-                      </div>
-                    </div>
-
-                    <div className="sg-gate-hardware-pills">
-                      <span className="sg-pill master-pill">
-                        <FaCogs /> {mastersCount} {mastersCount === 1 ? 'Master Unit' : 'Master Units'}
-                      </span>
-                      <span className="sg-pill slave-pill">
-                        <FaPlug /> {slavesCount} {slavesCount === 1 ? 'Slave Device' : 'Slave Devices'}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 3. DEDICATED GATE HARDWARE & DEVICES PAGE */}
-      {viewMode === 'gate_detail' && activeGate && (
-        <div className="sg-gate-detail-view fade-in">
-          {/* Breadcrumb Bar */}
-          <div className="sg-view-header">
-            <div className="sg-breadcrumb-bar">
-              <button className="btn btn-secondary btn-sm" onClick={handleBackToGroup}>
-                <FaArrowLeft /> Back
-              </button>
-              <span className="sg-breadcrumb-crumb" onClick={handleBackToList}>Scope Groups</span>
-              <span className="sg-breadcrumb-sep">/</span>
-              <span className="sg-breadcrumb-crumb" onClick={handleBackToGroup}>
-                {activeGroup?.name || 'Scope Group'}
-              </span>
-              <span className="sg-breadcrumb-sep">/</span>
-              <span className="sg-breadcrumb-active">{activeGate.lcNumber}</span>
-            </div>
-          </div>
-
-          {/* Gate Overview Hero Card */}
-          <div className="sg-gate-hero-card">
-            <div className="sg-gate-hero-top">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                <span className="sg-gate-hero-lc">{activeGate.lcNumber}</span>
-                <span className="badge badge-blue" style={{ fontSize: '0.88rem', padding: '4px 12px' }}>
-                  {activeGate.zone || 'Zone N/A'} • {activeGate.division || 'Division N/A'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <span className="sg-pill master-pill">
-                  <FaCogs /> {activeGate.masters?.length || 0} Masters
-                </span>
-                <span className="sg-pill slave-pill">
-                  <FaPlug />{' '}
-                  {activeGate.masters?.reduce((acc: number, m: any) => acc + (m.childDevices?.length || 0), 0) || 0} Slaves
-                </span>
-              </div>
-            </div>
-
-            <h3 className="sg-gate-hero-loc">
-              {activeGate.locationName || activeGate.name || 'LC Gate'}
-            </h3>
-
-            <div className="sg-gate-hero-meta">
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <FaTrain style={{ color: '#0B3C7A' }} /> Railway Section: {activeGate.division || 'N/A'}, {activeGate.zone || 'N/A'}
-              </span>
-              {activeGate.latitude && activeGate.longitude && (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <FaMapMarkerAlt style={{ color: '#ef4444' }} /> Coordinates: {activeGate.latitude}, {activeGate.longitude}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Hardware & Devices Telemetry Section */}
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <h3 style={{ margin: '0 0 4px 0', fontSize: '1.3rem', fontWeight: 800, color: '#0f172a' }}>
-                  Hardware Telemetry & Connected Devices
-                </h3>
-                <p style={{ margin: 0, fontSize: '0.88rem', color: '#64748b' }}>
-                  Live configuration of Master units and Slave sensors installed at this gate.
-                </p>
-              </div>
-              {activeGateLoading && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#0B3C7A', fontSize: '0.85rem' }}>
-                  <FaSyncAlt className="spin" /> Updating telemetry...
-                </div>
-              )}
-            </div>
-
-            {(!activeGate.masters || activeGate.masters.length === 0) ? (
-              <div className="sg-empty-state" style={{ padding: 48 }}>
-                <FaMicrochip className="sg-empty-icon" />
-                <h4 style={{ margin: '0 0 8px 0', color: '#1e293b' }}>No Master Units Configured</h4>
-                <p style={{ margin: 0 }}>
-                  This LC gate currently does not have any master telemetry units installed.
-                </p>
-              </div>
             ) : (
-              <div className="sg-masters-stack">
-                {activeGate.masters.map((master: any) => (
-                  <div key={master.id} className="sg-master-unit-card">
-                    {/* Master Card Header */}
-                    <div className="sg-master-unit-header">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                        <div className="sg-master-icon-badge">
-                          <FaMicrochip />
-                        </div>
-                        <div>
-                          <h4 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
-                            {master.serialNumber}
-                          </h4>
-                          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                            Master Unit Sequence #{master.masterSequence || 1}
+              <div style={{ overflowX: 'auto' }}>
+                <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '12px 14px' }}>Service</th>
+                      <th style={{ padding: '12px 14px' }}>Device ID</th>
+                      <th style={{ padding: '12px 14px' }}>Coach Number</th>
+                      <th style={{ padding: '12px 14px' }}>Train Number</th>
+                      <th style={{ padding: '12px 14px' }}>Location / Zone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeGroup.devices
+                      .filter(d => {
+                        const matchService = detailFilterService === 'ALL' || d.serviceSlug === detailFilterService;
+                        if (!matchService) return false;
+                        if (!detailSearchQuery) return true;
+                        const q = detailSearchQuery.toLowerCase();
+                        return (
+                          d.deviceId.toLowerCase().includes(q) ||
+                          (d.serviceSlug && d.serviceSlug.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((d) => {
+                        const srv = allServices.find(s => s.slug === d.serviceSlug);
+                        const devInfo = (serviceDevicesMap[d.serviceSlug] || []).find(dev => dev.deviceId === d.deviceId);
+
+                        return (
+                          <tr key={`${d.serviceSlug}-${d.deviceId}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                            <td style={{ padding: '12px 14px' }}>
+                              <span
+                                className="badge"
+                                style={{
+                                  backgroundColor: '#f1f5f9',
+                                  color: '#1e293b',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6
+                                }}
+                              >
+                                {getServiceIcon(d.serviceSlug)}
+                                {srv?.name || d.serviceSlug}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--primary)' }}>
+                              {d.deviceId}
+                            </td>
+                            <td style={{ padding: '12px 14px' }}>
+                              <span className="badge" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>
+                                {devInfo?.coachNumber || '—'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 14px' }}>{devInfo?.trainNumber || '—'}</td>
+                            <td style={{ padding: '12px 14px' }}>{devInfo?.location || 'Indian Railways'}</td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Assigned Team Members Table */}
+          <div className="card" style={{ padding: 24, borderRadius: 16 }}>
+            <h3 style={{ margin: '0 0 16px 0', color: '#1e293b', fontWeight: 800 }}>
+              Assigned Team Members ({activeGroup.users?.length || 0})
+            </h3>
+            {(!activeGroup.users || activeGroup.users.length === 0) ? (
+              <p className="text-muted" style={{ margin: 0 }}>No team members assigned to this scope group.</p>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '10px 14px' }}>Full Name</th>
+                      <th style={{ padding: '10px 14px' }}>Email</th>
+                      <th style={{ padding: '10px 14px' }}>Role</th>
+                      <th style={{ padding: '10px 14px' }}>Department</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeGroup.users.map((item) => (
+                      <tr key={item.user.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{item.user.fullName}</td>
+                        <td style={{ padding: '10px 14px', color: '#64748b' }}>{item.user.email}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <span className="badge" style={{ backgroundColor: 'rgba(11, 60, 122, 0.08)', color: 'var(--primary)' }}>
+                            {item.user.role?.name || 'User'}
                           </span>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <span className="sg-power-badge">
-                          {master.powerSource === 'SOLAR' ? (
-                            <><FaSun style={{ color: '#f59e0b' }} /> Solar Power</>
-                          ) : (
-                            <><FaBolt style={{ color: '#3b82f6' }} /> Direct Current</>
-                          )}
-                        </span>
-                        <span className="sg-slaves-count-pill">
-                          {master.childDevices?.length || 0} {master.childDevices?.length === 1 ? 'Slave Device' : 'Slave Devices'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Slave Devices Panel */}
-                    <div className="sg-slave-devices-panel">
-                      <div className="sg-slave-devices-title">
-                        <FaPlug style={{ color: '#0284c7' }} /> Connected Slave Devices ({master.childDevices?.length || 0})
-                      </div>
-
-                      {(!master.childDevices || master.childDevices.length === 0) ? (
-                        <div className="sg-slave-empty">
-                          No slave devices connected to this master unit yet.
-                        </div>
-                      ) : (
-                        <div className="sg-slave-devices-grid">
-                          {master.childDevices.map((dev: any) => (
-                            <div key={dev.id} className="sg-slave-item-card">
-                              <div className="sg-slave-item-top">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <div className="sg-slave-icon">
-                                    <FaPlug />
-                                  </div>
-                                  <strong className="sg-slave-serial">{dev.serialNumber}</strong>
-                                </div>
-                                <span className="sg-slave-seq-badge">Seq #{dev.deviceSequence || 1}</span>
-                              </div>
-
-                              <div className="sg-slave-item-bot">
-                                <span className="sg-slave-type-name">
-                                  {dev.type === 'DEVICE_1' ? 'Hall Effect + Limit Switch' : 'Tilt Sensor'}
-                                </span>
-                                <span className="sg-slave-type-pill">
-                                  {dev.type === 'DEVICE_1' ? 'Type A' : 'Type B'}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                        </td>
+                        <td style={{ padding: '10px 14px' }}>{item.user.department || 'Operations'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* CREATE / EDIT MODAL */}
+      {/* CREATE / EDIT SCOPE GROUP MODAL */}
       {isModalOpen && (
-        <div className="sg-modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="sg-modal" onClick={e => e.stopPropagation()}>
-            <div className="sg-modal-header">
-              <h3>
-                <FaLayerGroup style={{ color: formColor }} />
-                {editingGroupId ? 'Edit Scope Group' : 'Create New Scope Group'}
+        <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
+          <div
+            className="modal"
+            style={{ width: 840, maxWidth: '94vw', maxHeight: '90vh', overflowY: 'auto', borderRadius: 16 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ margin: 0, color: 'var(--primary)', fontWeight: 800 }}>
+                {editingGroupId ? 'Edit Scope Group Allocation' : 'Create Scope Group'}
               </h3>
-              <button
-                className="icon-btn"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem' }}
-                onClick={() => setIsModalOpen(false)}
-              >
+              <button type="button" className="icon-btn" onClick={() => setIsModalOpen(false)}>
                 <FaTimes />
               </button>
             </div>
 
             {/* Modal Tabs */}
-            <div className="sg-modal-tabs">
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', background: '#f8fafc', padding: '0 16px' }}>
               <button
                 type="button"
-                className={`sg-modal-tab-btn ${modalTab === 'details' ? 'active' : ''}`}
+                className={`tab-btn ${modalTab === 'details' ? 'active' : ''}`}
                 onClick={() => setModalTab('details')}
+                style={{ padding: '12px 18px', border: 'none', background: 'none', fontWeight: 700, cursor: 'pointer', borderBottom: modalTab === 'details' ? '3px solid var(--primary)' : '3px solid transparent' }}
               >
-                <FaTag /> 1. Group Details
+                1. Details & Structure
               </button>
+
               <button
                 type="button"
-                className={`sg-modal-tab-btn ${modalTab === 'subgroups' ? 'active' : ''}`}
-                onClick={() => setModalTab('subgroups')}
+                className={`tab-btn ${modalTab === 'services' ? 'active' : ''}`}
+                onClick={() => setModalTab('services')}
+                style={{ padding: '12px 18px', border: 'none', background: 'none', fontWeight: 700, cursor: 'pointer', borderBottom: modalTab === 'services' ? '3px solid var(--primary)' : '3px solid transparent' }}
               >
-                <FaFolderPlus /> 2. Sub-Groups {formSubGroupsList.length > 0 && `(${formSubGroupsList.length})`}
+                2. Services & Devices ({selectedServiceDevices.size} Active)
               </button>
+
               <button
                 type="button"
-                className={`sg-modal-tab-btn ${modalTab === 'gates' ? 'active' : ''}`}
-                onClick={() => setModalTab('gates')}
-              >
-                <FaMicrochip /> 3. Clusters / Gates (Optional) {selectedGateIds.size > 0 && `(${selectedGateIds.size})`}
-              </button>
-              <button
-                type="button"
-                className={`sg-modal-tab-btn ${modalTab === 'users' ? 'active' : ''}`}
+                className={`tab-btn ${modalTab === 'users' ? 'active' : ''}`}
                 onClick={() => setModalTab('users')}
+                style={{ padding: '12px 18px', border: 'none', background: 'none', fontWeight: 700, cursor: 'pointer', borderBottom: modalTab === 'users' ? '3px solid var(--primary)' : '3px solid transparent' }}
               >
-                <FaUsers /> 4. Assign Users ({selectedUserIds.size})
+                3. Team Members ({selectedUserIds.size})
               </button>
             </div>
 
-            <form onSubmit={handleSubmitForm} style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-              <div className="sg-modal-body">
-                {formError && (
-                  <div style={{ padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', borderRadius: 8, marginBottom: 16, fontSize: '0.9rem' }}>
-                    {formError}
+            <form onSubmit={handleSubmitForm} style={{ padding: 24 }}>
+              {formError && (
+                <div style={{ padding: 12, backgroundColor: '#fef2f2', color: '#b91c1c', borderRadius: 8, marginBottom: 16 }}>
+                  {formError}
+                </div>
+              )}
+
+              {/* TAB 1: DETAILS & STRUCTURE */}
+              {modalTab === 'details' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div>
+                    <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', marginBottom: 6 }}>
+                      Scope Group Name *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Nagpur Division, Central Railway, Howrah Zone"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)' }}
+                      required
+                    />
                   </div>
-                )}
 
-                {/* TAB 1: DETAILS */}
-                {modalTab === 'details' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                    <div>
-                      <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: 6 }}>
-                        Scope Group Name <span style={{ color: '#ef4444' }}>*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Central Railway, Western Railway, Mumbai Division..."
-                        value={formName}
-                        onChange={e => setFormName(e.target.value)}
-                        style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.95rem' }}
-                      />
-                    </div>
+                  <div>
+                    <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', marginBottom: 6 }}>
+                      Description
+                    </label>
+                    <textarea
+                      placeholder="Scope boundary description..."
+                      value={formDesc}
+                      onChange={(e) => setFormDesc(e.target.value)}
+                      rows={2}
+                      style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)' }}
+                    />
+                  </div>
 
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                     <div>
-                      <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: 6 }}>
-                        Parent Scope Group (Folder / Hierarchy Level)
+                      <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', marginBottom: 6 }}>
+                        Parent Scope Group (Zonal Hierarchy)
                       </label>
                       <select
                         value={formParentId === null ? '' : formParentId}
-                        onChange={e => setFormParentId(e.target.value ? parseInt(e.target.value, 10) : null)}
-                        style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.92rem', backgroundColor: '#fff' }}
+                        onChange={(e) => setFormParentId(e.target.value === '' ? null : parseInt(e.target.value, 10))}
+                        style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)' }}
                       >
-                        <option value="">📁 None (Top-Level Scope Group / Zone, e.g. Central Railway)</option>
+                        <option value="">None (Top-Level Railway Zone / Root Group)</option>
                         {scopeGroups
-                          .filter(g => g.id !== editingGroupId)
+                          .filter(g => editingGroupId ? g.id !== editingGroupId : true)
                           .map(g => (
-                            <option key={g.id} value={g.id}>
-                              📂 {g.parent ? `${g.parent.name} / ` : ''}{g.name}
-                            </option>
+                            <option key={g.id} value={g.id}>{g.name}</option>
                           ))}
                       </select>
-                      <small style={{ display: 'block', marginTop: 5, color: '#64748b', fontSize: '0.8rem', lineHeight: 1.35 }}>
-                        Create a folder within folder (e.g. Central Railway → Ahmedabad Division). Users assigned to the parent group automatically inherit all child divisions and their clusters.
-                      </small>
                     </div>
 
                     <div>
-                      <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: 6 }}>
-                        Description (Optional)
+                      <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', marginBottom: 6 }}>
+                        Color Tag
                       </label>
-                      <textarea
-                        rows={3}
-                        placeholder="Provide details about which gates or areas are covered by this scope..."
-                        value={formDesc}
-                        onChange={e => setFormDesc(e.target.value)}
-                        style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.92rem', resize: 'vertical' }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: 6 }}>
-                        Group Color Accent
-                      </label>
-                      <div className="sg-color-swatches">
-                        {COLOR_PRESETS.map(hex => (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        {COLOR_PRESETS.map(c => (
                           <div
-                            key={hex}
-                            className={`sg-color-circle ${formColor === hex ? 'selected' : ''}`}
-                            style={{ backgroundColor: hex }}
-                            onClick={() => setFormColor(hex)}
+                            key={c}
+                            onClick={() => setFormColor(c)}
+                            style={{
+                              width: 26,
+                              height: 26,
+                              borderRadius: '50%',
+                              backgroundColor: c,
+                              cursor: 'pointer',
+                              border: formColor === c ? '3px solid #000' : '2px solid transparent'
+                            }}
                           />
                         ))}
                       </div>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* TAB 2: SUB-GROUPS */}
-                {modalTab === 'subgroups' && (
-                  <div>
-                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 16, marginBottom: 18 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontWeight: 750, color: '#0f172a' }}>
-                        <FaFolderPlus color="#0B3C7A" size={17} />
-                        <span style={{ fontSize: '1rem' }}>Create Sub-Groups Within This Group Simultaneously</span>
-                      </div>
-                      <p style={{ margin: 0, fontSize: '0.86rem', color: '#64748b', lineHeight: 1.45 }}>
-                        Define child divisions or sub-folders now (e.g. <em>Ahmedabad Division, Mumbai Division, Pune Division</em>). 
-                        You can create a parent group and its sub-groups at the exact same time without needing to assign clusters immediately.
-                      </p>
+              {/* TAB 2: SERVICES & DEPLOYED DEVICES SELECTION */}
+              {modalTab === 'services' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                  <p className="text-muted" style={{ margin: 0, fontSize: '0.88rem' }}>
+                    Select which Smart Coach rolling-stock services and specific hardware devices will be accessible to this scope.
+                  </p>
 
-                      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-                        <input
-                          type="text"
-                          placeholder="Enter sub-group name (e.g. Ahmedabad Division)..."
-                          value={formSubGroupInput}
-                          onChange={e => setFormSubGroupInput(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleAddSubGroup();
-                            }
-                          }}
-                          style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.92rem' }}
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          onClick={handleAddSubGroup}
-                          style={{ whiteSpace: 'nowrap' }}
-                        >
-                          <FaPlus /> Add Sub-Group
-                        </button>
-                      </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '240px 1fr', gap: 20, minHeight: 380 }}>
+                    {/* Left: Services Sidebar */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderRight: '1px solid var(--border)', paddingRight: 16 }}>
+                      {allServices.map((srv) => {
+                        const isSubscribed = selectedServiceDevices.has(srv.slug);
+                        const selectedCount = selectedServiceDevices.get(srv.slug)?.size || 0;
+                        const totalCount = (serviceDevicesMap[srv.slug] || []).length;
+
+                        return (
+                          <div
+                            key={srv.slug}
+                            onClick={() => setActiveServiceInPicker(srv.slug)}
+                            style={{
+                              padding: '12px 14px',
+                              borderRadius: 10,
+                              cursor: 'pointer',
+                              backgroundColor: activeServiceInPicker === srv.slug ? 'rgba(11, 60, 122, 0.08)' : '#ffffff',
+                              border: activeServiceInPicker === srv.slug ? '1.5px solid var(--primary)' : '1px solid #e2e8f0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <input
+                                type="checkbox"
+                                checked={isSubscribed}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  toggleServiceSubscription(srv.slug);
+                                }}
+                                style={{ width: 16, height: 16, cursor: 'pointer' }}
+                              />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {getServiceIcon(srv.slug)}
+                                <strong style={{ fontSize: '0.85rem', color: '#1e293b' }}>{srv.shortCode}</strong>
+                              </div>
+                            </div>
+
+                            <span className="badge" style={{ fontSize: '0.72rem', backgroundColor: isSubscribed ? '#e0f2fe' : '#f1f5f9', color: isSubscribed ? '#0369a1' : '#94a3b8' }}>
+                              {selectedCount}/{totalCount}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
 
-                    {/* Queued Sub-Groups list */}
-                    <div style={{ marginBottom: 18 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <label style={{ fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', margin: 0 }}>
-                          Sub-Groups Queued for Creation ({formSubGroupsList.length})
-                        </label>
-                        {formSubGroupsList.length > 0 && (
-                          <button
-                            type="button"
-                            className="btn btn-xs btn-secondary"
-                            onClick={() => setFormSubGroupsList([])}
-                            style={{ fontSize: '0.74rem' }}
-                          >
-                            Clear All
-                          </button>
-                        )}
-                      </div>
+                    {/* Right: Device Picker for active service */}
+                    {activeServiceInPicker && (() => {
+                      const srv = allServices.find(s => s.slug === activeServiceInPicker);
+                      const allDevs = serviceDevicesMap[activeServiceInPicker] || [];
+                      const selectedSet = selectedServiceDevices.get(activeServiceInPicker) || new Set();
 
-                      {formSubGroupsList.length === 0 ? (
-                        <div style={{ padding: '28px 16px', textAlign: 'center', background: '#f8fafc', border: '1px dashed #cbd5e1', borderRadius: 8, color: '#94a3b8', fontSize: '0.88rem' }}>
-                          <FaFolderOpen size={24} style={{ display: 'block', margin: '0 auto 8px auto', color: '#cbd5e1' }} />
-                          No sub-groups added yet. Type a sub-group name above and click "Add Sub-Group" or press Enter.
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {formSubGroupsList.map((sgName, idx) => (
-                            <div
-                              key={idx}
-                              style={{
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                padding: '10px 14px',
-                                background: '#ffffff',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: 8
-                              }}
-                            >
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <span style={{ width: 28, height: 28, borderRadius: 6, background: '#ede9fe', color: '#6d28d9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem' }}>
-                                  <FaFolder />
-                                </span>
-                                <div>
-                                  <strong style={{ fontSize: '0.95rem', color: '#0f172a' }}>{sgName}</strong>
-                                  <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                                    Will be created as child folder inside {formName.trim() || 'this parent group'}
-                                  </div>
-                                </div>
-                              </div>
+                      const filteredDevs = allDevs.filter(d => {
+                        const q = deviceSearchQuery.toLowerCase();
+                        return (
+                          d.deviceId.toLowerCase().includes(q) ||
+                          (d.coachNumber && d.coachNumber.toLowerCase().includes(q)) ||
+                          (d.location && d.location.toLowerCase().includes(q)) ||
+                          (d.trainNumber && d.trainNumber.toLowerCase().includes(q))
+                        );
+                      });
+
+                      return (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <strong style={{ fontSize: '1rem', color: '#0f172a' }}>{srv?.name}</strong>
+                              <span className="badge" style={{ backgroundColor: '#f1f5f9' }}>
+                                {selectedSet.size} of {allDevs.length} Selected
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8 }}>
                               <button
                                 type="button"
-                                className="btn btn-sm"
-                                style={{ color: '#ef4444', background: '#fef2f2', borderColor: '#fecaca', padding: '4px 8px' }}
-                                onClick={() => handleRemoveSubGroup(idx)}
-                                title="Remove sub-group"
+                                className="btn btn-sm btn-outline"
+                                onClick={() => selectAllDevicesForService(activeServiceInPicker)}
                               >
-                                <FaTrash size={11} />
+                                Select All
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline"
+                                onClick={() => deselectAllDevicesForService(activeServiceInPicker)}
+                              >
+                                Clear
                               </button>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* If editing an existing group, show existing child divisions */}
-                    {editingGroupId && (
-                      <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid #e2e8f0' }}>
-                        <label style={{ display: 'block', fontWeight: 700, fontSize: '0.88rem', color: '#1e293b', marginBottom: 8 }}>
-                          Existing Sub-Divisions ({getDirectChildren(editingGroupId).length})
-                        </label>
-                        {getDirectChildren(editingGroupId).length === 0 ? (
-                          <div style={{ fontSize: '0.84rem', color: '#94a3b8' }}>
-                            No existing sub-divisions currently under this group.
                           </div>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            {getDirectChildren(editingGroupId).map(child => (
-                              <div
-                                key={child.id}
-                                style={{
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  padding: '8px 12px',
-                                  background: '#f1f5f9',
-                                  border: '1px solid #e2e8f0',
-                                  borderRadius: 6,
-                                  fontSize: '0.88rem'
-                                }}
-                              >
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#334155', fontWeight: 600 }}>
-                                  <FaFolder color="#0B3C7A" /> {child.name}
-                                </span>
-                                <span className="sg-pill gates" style={{ fontSize: '0.72rem' }}>
-                                  {child.gates?.length || child._count?.gates || 0} Gates
-                                </span>
-                              </div>
-                            ))}
+
+                          <div style={{ position: 'relative' }}>
+                            <FaSearch style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />
+                            <input
+                              type="text"
+                              placeholder="Search devices by coach, train, or division..."
+                              value={deviceSearchQuery}
+                              onChange={(e) => setDeviceSearchQuery(e.target.value)}
+                              style={{ width: '100%', padding: '6px 10px 6px 32px', borderRadius: 6, border: '1px solid var(--border)', fontSize: '0.85rem' }}
+                            />
                           </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
 
-                {/* TAB 3: GATES PICKER */}
-                {modalTab === 'gates' && (
-                  <div>
-                    <div style={{ padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, marginBottom: 14, fontSize: '0.86rem', color: '#166534', display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      <FaInfoCircle size={18} style={{ flexShrink: 0, marginTop: 1, color: '#16a34a' }} />
-                      <div>
-                        <strong>Cluster Selection is Optional for Parent Groups:</strong> You do not have to select clusters right now. If this is a zonal or parent group (like Central Railway), clusters can be assigned to child sub-groups (like Ahmedabad Division). Users assigned to the parent group automatically inherit all clusters from all sub-groups.
-                      </div>
-                    </div>
-
-                    <div className="sg-selector-toolbar">
-                      <div className="sg-search-box" style={{ flex: '1 1 200px' }}>
-                        <FaSearch color="#94a3b8" />
-                        <input
-                          type="text"
-                          placeholder="Search gates by LC#, name, location..."
-                          value={gateSearchQuery}
-                          onChange={e => setGateSearchQuery(e.target.value)}
-                        />
-                      </div>
-
-                      <select
-                        value={gateFilterZone}
-                        onChange={e => {
-                          setGateFilterZone(e.target.value);
-                          setGateFilterDivision('');
-                        }}
-                      >
-                        <option value="">All Zones</option>
-                        {zones.map(z => (
-                          <option key={z} value={z}>{z}</option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={gateFilterDivision}
-                        onChange={e => setGateFilterDivision(e.target.value)}
-                        disabled={!gateFilterZone}
-                      >
-                        <option value="">All Divisions</option>
-                        {availableDivisions.map(d => (
-                          <option key={d} value={d}>{d}</option>
-                        ))}
-                      </select>
-
-                      <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-secondary"
-                          onClick={selectAllFilteredGates}
-                        >
-                          <FaCheckDouble /> Select All Filtered ({pickerFilteredGates.length})
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-secondary"
-                          onClick={deselectAllFilteredGates}
-                        >
-                          Deselect Filtered
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ marginBottom: 10, fontSize: '0.84rem', color: '#64748b', display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Showing {pickerFilteredGates.length} of {allGates.length} gates</span>
-                      <strong>{selectedGateIds.size} gates selected</strong>
-                    </div>
-
-                    <div className="sg-items-picker-box">
-                      {pickerFilteredGates.length === 0 ? (
-                        <div style={{ padding: '30px 10px', textAlign: 'center', color: '#94a3b8' }}>
-                          No gates match the current filter criteria.
-                        </div>
-                      ) : (
-                        pickerFilteredGates.map(gate => {
-                          const isSelected = selectedGateIds.has(gate.id);
-                          return (
-                            <div
-                              key={gate.id}
-                              className={`sg-item-row ${isSelected ? 'selected' : ''}`}
-                              onClick={() => toggleGateSelection(gate.id)}
-                            >
-                              <input
-                                type="checkbox"
-                                className="sg-item-checkbox"
-                                checked={isSelected}
-                                onChange={() => {}} // handled by parent onClick
-                              />
-                              <div className="sg-item-details">
-                                <div>
-                                  <div className="sg-item-name">
-                                    {gate.lcNumber} {gate.name ? `— ${gate.name}` : ''}
-                                  </div>
-                                  <div className="sg-item-sub">
-                                    📍 {gate.locationName || 'Unspecified location'}
-                                  </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                  {gate.zone && (
-                                    <span className="badge" style={{ fontSize: '0.72rem', background: '#e2e8f0', color: '#334155' }}>
-                                      {gate.zone}
-                                    </span>
-                                  )}
-                                  {gate.division && (
-                                    <span className="badge" style={{ fontSize: '0.72rem', background: '#f1f5f9', color: '#475569' }}>
-                                      {gate.division}
-                                    </span>
-                                  )}
-                                </div>
+                          <div style={{ overflowY: 'auto', maxHeight: 300, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                            {filteredDevs.length === 0 ? (
+                              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                                No devices found for {srv?.name}.
                               </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 3: USERS PICKER */}
-                {modalTab === 'users' && (
-                  <div>
-                    <div className="sg-selector-toolbar">
-                      <div className="sg-search-box" style={{ flex: '1 1 220px' }}>
-                        <FaSearch color="#94a3b8" />
-                        <input
-                          type="text"
-                          placeholder="Search users by name, email, employee ID..."
-                          value={userSearchQuery}
-                          onChange={e => setUserSearchQuery(e.target.value)}
-                        />
-                      </div>
-
-                      <select
-                        value={userRoleFilter}
-                        onChange={e => setUserRoleFilter(e.target.value)}
-                      >
-                        <option value="ALL">All Roles</option>
-                        {userRolesList.map(r => (
-                          <option key={r} value={r}>{r}</option>
-                        ))}
-                      </select>
-
-                      <div style={{ marginLeft: 'auto', fontSize: '0.85rem', fontWeight: 600, color: '#0B3C7A' }}>
-                        {selectedUserIds.size} users selected
-                      </div>
-                    </div>
-
-                    <div className="sg-items-picker-box">
-                      {pickerFilteredUsers.length === 0 ? (
-                        <div style={{ padding: '30px 10px', textAlign: 'center', color: '#94a3b8' }}>
-                          No users match the search.
-                        </div>
-                      ) : (
-                        pickerFilteredUsers.map(u => {
-                          const isSelected = selectedUserIds.has(u.id);
-                          return (
-                            <div
-                              key={u.id}
-                              className={`sg-item-row ${isSelected ? 'selected' : ''}`}
-                              onClick={() => toggleUserSelection(u.id)}
-                            >
-                              <input
-                                type="checkbox"
-                                className="sg-item-checkbox"
-                                checked={isSelected}
-                                onChange={() => {}}
-                              />
-                              <div className="sg-item-details">
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            ) : (
+                              filteredDevs.map(dev => {
+                                const isChecked = selectedSet.has(dev.deviceId);
+                                return (
                                   <div
+                                    key={dev.deviceId}
+                                    onClick={() => toggleDeviceSelection(activeServiceInPicker, dev.deviceId)}
                                     style={{
-                                      width: 32,
-                                      height: 32,
-                                      borderRadius: '50%',
-                                      background: 'var(--primary)',
-                                      color: 'white',
+                                      padding: '8px 12px',
+                                      borderBottom: '1px solid #f1f5f9',
                                       display: 'flex',
                                       alignItems: 'center',
-                                      justifyContent: 'center',
-                                      fontWeight: 700,
-                                      fontSize: '0.8rem'
+                                      justifyContent: 'space-between',
+                                      cursor: 'pointer',
+                                      backgroundColor: isChecked ? 'rgba(11, 60, 122, 0.04)' : undefined
                                     }}
                                   >
-                                    {u.fullName?.substring(0, 2).toUpperCase() || 'U'}
-                                  </div>
-                                  <div>
-                                    <div className="sg-item-name">{u.fullName}</div>
-                                    <div className="sg-item-sub">
-                                      {u.email} • ID: {u.employeeId || 'N/A'} • {u.department || 'Dept N/A'}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={() => {}}
+                                        style={{ width: 16, height: 16, cursor: 'pointer' }}
+                                      />
+                                      <div>
+                                        <strong style={{ fontSize: '0.88rem', color: '#1e293b' }}>{dev.deviceId}</strong>
+                                        <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                                          Coach: <strong>{dev.coachNumber || '—'}</strong> &bull; Train: {dev.trainNumber || '—'}
+                                        </div>
+                                      </div>
                                     </div>
+
+                                    <span className="badge" style={{ backgroundColor: '#f1f5f9', color: '#475569', fontSize: '0.75rem' }}>
+                                      {dev.location || 'Indian Railways'}
+                                    </span>
                                   </div>
-                                </div>
-                                <div>
-                                  <span className="badge" style={{ backgroundColor: 'var(--secondary, #0e9aa7)', color: 'white', fontSize: '0.74rem' }}>
-                                    {u.role?.name || 'User'}
-                                  </span>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: ASSIGNED TEAM MEMBERS */}
+              {modalTab === 'users' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <p className="text-muted" style={{ margin: 0, fontSize: '0.88rem' }}>
+                      Select users (e.g. Division Officers, Zonal Officers) who will receive access to this Scope Group.
+                    </p>
+                    <span className="badge" style={{ backgroundColor: '#ecfdf5', color: '#047857' }}>
+                      {selectedUserIds.size} Users Selected
+                    </span>
+                  </div>
+
+                  <div style={{ position: 'relative' }}>
+                    <FaSearch style={{ position: 'absolute', left: 10, top: 10, color: '#94a3b8' }} />
+                    <input
+                      type="text"
+                      placeholder="Search users by name, email, department..."
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      style={{ width: '100%', padding: '8px 12px 8px 34px', borderRadius: 8, border: '1px solid var(--border)' }}
+                    />
+                  </div>
+
+                  <div style={{ overflowY: 'auto', maxHeight: 320, border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                    {allUsers
+                      .filter(u => {
+                        const q = userSearchQuery.toLowerCase();
+                        return (
+                          (u.fullName && u.fullName.toLowerCase().includes(q)) ||
+                          (u.email && u.email.toLowerCase().includes(q)) ||
+                          (u.department && u.department.toLowerCase().includes(q)) ||
+                          (u.role?.name && u.role.name.toLowerCase().includes(q))
+                        );
+                      })
+                      .map(u => {
+                        const isChecked = selectedUserIds.has(u.id);
+                        return (
+                          <div
+                            key={u.id}
+                            onClick={() => toggleUserSelection(u.id)}
+                            style={{
+                              padding: '10px 14px',
+                              borderBottom: '1px solid #f1f5f9',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              cursor: 'pointer',
+                              backgroundColor: isChecked ? 'rgba(11, 60, 122, 0.04)' : undefined
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => {}}
+                                style={{ width: 16, height: 16, cursor: 'pointer' }}
+                              />
+                              <div>
+                                <strong style={{ fontSize: '0.9rem', color: '#1e293b' }}>{u.fullName}</strong>
+                                <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                                  {u.email} &bull; {u.department || 'Operations'}
                                 </div>
                               </div>
                             </div>
-                          );
-                        })
-                      )}
-                    </div>
+
+                            <span className="badge" style={{ backgroundColor: 'rgba(11, 60, 122, 0.08)', color: 'var(--primary)' }}>
+                              {u.role?.name || 'User'}
+                            </span>
+                          </div>
+                        );
+                      })}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Modal Footer */}
-              <div className="sg-modal-footer">
-                <div>
-                  {modalTab !== 'details' && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        if (modalTab === 'users') setModalTab('gates');
-                        else if (modalTab === 'gates') setModalTab('subgroups');
-                        else if (modalTab === 'subgroups') setModalTab('details');
-                      }}
-                    >
-                      Back
-                    </button>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setIsModalOpen(false)}
-                    disabled={submitting}
-                  >
-                    Cancel
-                  </button>
-
-                  {modalTab === 'details' && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => setModalTab('subgroups')}
-                    >
-                      Next: Sub-Groups {formSubGroupsList.length > 0 && `(${formSubGroupsList.length})`}
-                    </button>
-                  )}
-
-                  {modalTab === 'subgroups' && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => setModalTab('gates')}
-                    >
-                      Next: Gates (Optional)
-                    </button>
-                  )}
-
-                  {modalTab === 'gates' && (
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      onClick={() => setModalTab('users')}
-                    >
-                      Next: Assign Users ({selectedUserIds.size})
-                    </button>
-                  )}
-
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={submitting}
-                  >
-                    {submitting
-                      ? 'Saving...'
-                      : editingGroupId
-                      ? 'Save Scope Group'
-                      : formSubGroupsList.length > 0
-                      ? `Create Group + ${formSubGroupsList.length} Sub-Group${formSubGroupsList.length > 1 ? 's' : ''}`
-                      : 'Create Scope Group'}
-                  </button>
-                </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                <button type="button" className="btn btn-outline" onClick={() => setIsModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? 'Saving...' : editingGroupId ? 'Save Scope Allocation' : 'Create Scope Group'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-
-
       {/* DELETE CONFIRMATION MODAL */}
       {deleteConfirmGroup && (
-        <div className="sg-modal-overlay" onClick={() => setDeleteConfirmGroup(null)}>
-          <div className="sg-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
-            <div className="sg-modal-header" style={{ background: '#fef2f2' }}>
-              <h3 style={{ color: '#b91c1c' }}>
-                <FaTrash /> Delete Scope Group?
-              </h3>
-              <button
-                className="icon-btn"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem' }}
-                onClick={() => setDeleteConfirmGroup(null)}
-              >
-                <FaTimes />
-              </button>
-            </div>
-
-            <div className="sg-modal-body">
-              <p style={{ margin: '0 0 12px 0', fontSize: '0.95rem', color: '#334155' }}>
-                Are you sure you want to delete the Scope Group <strong>"{deleteConfirmGroup.name}"</strong>?
-              </p>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: '#64748b' }}>
-                This will unassign all {deleteConfirmGroup.gates?.length || 0} gates from this scope group. The gates and user accounts will <strong>not</strong> be deleted.
-              </p>
-            </div>
-
-            <div className="sg-modal-footer">
-              <button className="btn btn-secondary" onClick={() => setDeleteConfirmGroup(null)}>
+        <div className="modal-backdrop" onClick={() => setDeleteConfirmGroup(null)}>
+          <div className="modal" style={{ width: 440, padding: 24, borderRadius: 16 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px 0', color: '#b91c1c' }}>Delete Scope Group</h3>
+            <p style={{ fontSize: '0.92rem', color: '#64748b', lineHeight: 1.5 }}>
+              Are you sure you want to delete <strong>{deleteConfirmGroup.name}</strong>? Users assigned to this scope will lose access to its allocated devices.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
+              <button type="button" className="btn btn-outline" onClick={() => setDeleteConfirmGroup(null)}>
                 Cancel
               </button>
-              <button
-                className="btn"
-                style={{ background: '#dc2626', color: 'white', border: 'none' }}
-                onClick={handleDeleteGroup}
-              >
-                Yes, Delete Scope Group
+              <button type="button" className="btn btn-danger" onClick={handleDeleteGroup}>
+                Confirm Delete
               </button>
             </div>
           </div>

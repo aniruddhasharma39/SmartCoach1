@@ -5,16 +5,18 @@ import {
   FaLock, FaSearchPlus,
   FaHome, FaLayerGroup, FaUsers, FaShieldAlt, FaPaintBrush, 
   FaFileAlt, FaChartBar, FaHistory, FaVideo, FaTrain, FaCog, 
-  FaMapMarkerAlt, FaDatabase, FaArchway
+  FaMapMarkerAlt, FaDatabase, FaArchway, FaCogs, FaTachometerAlt,
+  FaThermometerHalf, FaExclamationTriangle, FaWind
 } from 'react-icons/fa';
 import type { User, NotificationItem } from '../types';
 import Roles from './Roles';
 import RegistrationBuilder from './RegistrationBuilder';
 import Branding from './Branding';
-import ClusterDashboard from './Cluster/ClusterDashboard';
 import ManageUsers from './ManageUsers';
 import ScopeGroupManagement from './ScopeGroups/ScopeGroupManagement';
-import LCGatesScreen from './LCGates/LCGatesScreen';
+import ServicesHub from './Services/ServicesHub';
+import ServiceDeviceListView from './Services/ServiceDeviceListView';
+import ServiceTelemetryView from './Services/ServiceTelemetryView';
 import { API_URL } from '../config';
 import { useToast } from '../context/ToastContext';
 
@@ -24,8 +26,12 @@ type Props = {
 };
 
 const CANONICAL_MODULE_ORDER = [
-  'lc-gates',
-  'cluster',
+  'services',
+  'brake-binding',
+  'hot-axle',
+  'bad-odour',
+  'emergency-brake',
+  'bpc-pressure',
   'scope-groups',
   'manage-users',
   'registration',
@@ -34,8 +40,12 @@ const CANONICAL_MODULE_ORDER = [
 ];
 
 const DEFAULT_SYSTEM_MODULES = [
-  { name: 'LC Gates', slug: 'lc-gates' },
-  { name: 'Cluster', slug: 'cluster' },
+  { name: 'Services Hub', slug: 'services' },
+  { name: 'Brake Binding', slug: 'brake-binding' },
+  { name: 'Hot Axle', slug: 'hot-axle' },
+  { name: 'Bad Odour', slug: 'bad-odour' },
+  { name: 'Emergency Brake', slug: 'emergency-brake' },
+  { name: 'BPC Pressure', slug: 'bpc-pressure' },
   { name: 'Scope Groups', slug: 'scope-groups' },
   { name: 'Manage Users', slug: 'manage-users' },
   { name: 'Registration Builder', slug: 'registration' },
@@ -58,6 +68,12 @@ const sortModules = (modules: any[]) => {
 
 const getSidebarModuleIcon = (name: string, slug?: string) => {
   const key = (slug || name).toLowerCase();
+  if (key === 'services' || key.includes('service')) return FaCogs;
+  if (key.includes('brake-binding') || key.includes('binding')) return FaTachometerAlt;
+  if (key.includes('hot-axle') || key.includes('axle') || key.includes('temp')) return FaThermometerHalf;
+  if (key.includes('odour') || key.includes('smell') || key.includes('air') || key === 'bad-odour') return FaWind;
+  if (key.includes('emergency') || key.includes('acp')) return FaExclamationTriangle;
+  if (key.includes('bpc') || key.includes('pressure')) return FaMicrochip;
   if (key.includes('lc-gate') || key.includes('lc gate') || key === 'lc-gates') return FaArchway;
   if (key.includes('scope') || key.includes('group')) return FaLayerGroup;
   if (key.includes('cluster') || key.includes('gate') || key.includes('device') || key.includes('barrier')) return FaMicrochip;
@@ -79,7 +95,9 @@ export default function Dashboard({ user, onLogout }: Props) {
   const { success: toastSuccess, info: toastInfo } = useToast();
   const [currentView, setCurrentView] = useState<string>('home');
   const [systemModules, setSystemModules] = useState<any[]>(DEFAULT_SYSTEM_MODULES);
-  const [branding, setBranding] = useState({ appName: 'LC Platform' });
+  const [branding, setBranding] = useState({ appName: 'Smart Coach Platform' });
+  const [userAccessibleServices, setUserAccessibleServices] = useState<string[]>(user.accessibleServices || []);
+  const [selectedServiceDevice, setSelectedServiceDevice] = useState<string | null>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -114,6 +132,22 @@ export default function Dashboard({ user, onLogout }: Props) {
       if(data && data.appName) setBranding(data);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const fetchMyScope = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/v1/scope-groups/my-scope`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.accessibleServices)) {
+          setUserAccessibleServices(data.accessibleServices);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch my-scope:', err);
     }
   };
 
@@ -270,6 +304,7 @@ export default function Dashboard({ user, onLogout }: Props) {
     fetchBranding();
     fetchNotifications();
     fetchUserProfile();
+    fetchMyScope();
 
     // Poll notifications every 30 seconds
     const interval = setInterval(fetchNotifications, 30000);
@@ -575,7 +610,7 @@ export default function Dashboard({ user, onLogout }: Props) {
           <a 
             href="#" 
             className={`nav-item ${currentView === 'home' ? 'active' : ''}`} 
-            onClick={(e) => { e.preventDefault(); setCurrentView('home'); setIsMobileMenuOpen(false); }}
+            onClick={(e) => { e.preventDefault(); setCurrentView('home'); setSelectedServiceDevice(null); setIsMobileMenuOpen(false); }}
           >
             <FaHome style={{ fontSize: '1rem', flexShrink: 0 }} />
             <span>Home</span>
@@ -583,13 +618,28 @@ export default function Dashboard({ user, onLogout }: Props) {
           
           {(() => {
             const isDev = user.role === 'Developer';
-            const hasAssignedScopes = Boolean(user.scopeGroups && user.scopeGroups.length > 0);
+            const SERVICE_SLUGS = ['brake-binding', 'hot-axle', 'bad-odour', 'emergency-brake', 'bpc-pressure'];
+            
             const modulesToShow = (systemModules.length > 0 ? systemModules : DEFAULT_SYSTEM_MODULES)
               .filter(m => {
+                // Completely discard obsolete LC gate and cluster modules
+                if (m.slug === 'lc-gates' || m.slug === 'cluster') return false;
+
+                // Smart Coach rolling stock service items
+                if (SERVICE_SLUGS.includes(m.slug)) {
+                  if (isDev) return true;
+                  return userAccessibleServices.includes(m.slug);
+                }
+
+                // Services Hub (configuration & introspection portal)
+                if (m.slug === 'services') {
+                  return isDev;
+                }
+
                 if (isDev) return true;
-                if (m.slug === 'lc-gates' && hasAssignedScopes) return true;
                 return user.allowedModules && user.allowedModules.includes(m.slug);
               });
+
             return modulesToShow.map(mod => {
               const IconComp = getSidebarModuleIcon(mod.name, mod.slug);
               return (
@@ -597,7 +647,12 @@ export default function Dashboard({ user, onLogout }: Props) {
                   key={mod.slug} 
                   href="#" 
                   className={`nav-item ${currentView === mod.slug ? 'active' : ''}`} 
-                  onClick={(e) => { e.preventDefault(); setCurrentView(mod.slug); setIsMobileMenuOpen(false); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setCurrentView(mod.slug);
+                    setSelectedServiceDevice(null);
+                    setIsMobileMenuOpen(false);
+                  }}
                 >
                   <IconComp style={{ fontSize: '1rem', flexShrink: 0 }} />
                   <span>{mod.name}</span>
@@ -611,27 +666,53 @@ export default function Dashboard({ user, onLogout }: Props) {
       <div className="main-content" style={{ height: '100%', overflowY: 'auto', flex: 1 }}>
         <header className="header" style={{ borderBottom: '1px solid var(--border)', paddingBottom: '1rem', marginBottom: '1.5rem', backgroundColor: 'transparent' }}>
           <h3 style={{ margin: 0 }}>
-            {currentView === 'home' ? 'Home' : systemModules.find(m => m.slug === currentView)?.name || 'Dashboard'}
+            {currentView === 'home'
+              ? 'Home'
+              : selectedServiceDevice && ['brake-binding', 'hot-axle', 'emergency-brake', 'bpc-pressure', 'bad-odour'].includes(currentView)
+              ? `${systemModules.find(m => m.slug === currentView)?.name || 'Service'} > Device: ${selectedServiceDevice}`
+              : systemModules.find(m => m.slug === currentView)?.name || 'Dashboard'}
           </h3>
         </header>
 
         <main className="content-area">
-          {currentView === 'lc-gates' && <LCGatesScreen user={user} />}
+          {currentView === 'services' && (
+            <ServicesHub
+              onNavigateToServiceTelemetry={(slug) => {
+                setCurrentView(slug);
+                setSelectedServiceDevice(null);
+              }}
+            />
+          )}
+          {['brake-binding', 'hot-axle', 'emergency-brake', 'bpc-pressure', 'bad-odour'].includes(currentView) && (
+            selectedServiceDevice ? (
+              <ServiceTelemetryView
+                serviceSlug={currentView}
+                initialDeviceId={selectedServiceDevice}
+                onBack={() => setSelectedServiceDevice(null)}
+                onOpenConfig={() => setCurrentView('services')}
+              />
+            ) : (
+              <ServiceDeviceListView
+                serviceSlug={currentView}
+                onSelectDevice={(deviceId) => setSelectedServiceDevice(deviceId)}
+                onOpenConfig={() => setCurrentView('services')}
+              />
+            )
+          )}
           {currentView === 'roles' && <Roles user={user} />}
           {currentView === 'registration' && <RegistrationBuilder />}
           {currentView === 'branding' && <Branding user={user} />}
-          {currentView === 'cluster' && <ClusterDashboard user={user} />}
           {currentView === 'scope-groups' && <ScopeGroupManagement user={user} />}
           {currentView === 'manage-users' && <ManageUsers user={user} onUserUpdate={fetchNotifications} />}
 
           {currentView === 'home' && (
             <div className="card text-center" style={{ padding: 64, marginTop: 32 }}>
-              <h2 style={{ fontSize: '2rem', color: 'var(--primary)', marginBottom: 16 }}>Welcome to LC Platform</h2>
+              <h2 style={{ fontSize: '2rem', color: 'var(--primary)', marginBottom: 16 }}>Welcome to Smart Coach Platform</h2>
               <p className="text-muted" style={{ fontSize: '1.2rem' }}>You are logged in as <strong>{user.role}</strong>.</p>
             </div>
           )}
 
-          {!['roles', 'registration', 'branding', 'cluster', 'scope-groups', 'manage-users', 'lc-gates', 'home'].includes(currentView) && (() => {
+          {!['services', 'brake-binding', 'hot-axle', 'emergency-brake', 'bpc-pressure', 'roles', 'registration', 'branding', 'cluster', 'scope-groups', 'manage-users', 'lc-gates', 'home'].includes(currentView) && (() => {
             const currentMod = systemModules.find(m => m.slug === currentView);
             const FallbackIcon = getSidebarModuleIcon(currentMod?.name || '', currentView);
             return (

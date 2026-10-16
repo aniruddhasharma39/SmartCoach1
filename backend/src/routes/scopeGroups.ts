@@ -57,6 +57,25 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
         g.gates.forEach(item => gateIdSet.add(item.gateId));
       });
 
+      const allDeviceRecords = await prisma.scopeGroupDevice.findMany({
+        where: { scopeGroupId: { in: allAccessibleIds } }
+      });
+
+      const accessibleServicesSet = new Set<string>();
+      const devicesByService: Record<string, string[]> = {};
+      const accessibleDevices: { serviceSlug: string; deviceId: string }[] = [];
+
+      allDeviceRecords.forEach(d => {
+        accessibleServicesSet.add(d.serviceSlug);
+        accessibleDevices.push({ serviceSlug: d.serviceSlug, deviceId: d.deviceId });
+        if (!devicesByService[d.serviceSlug]) {
+          devicesByService[d.serviceSlug] = [];
+        }
+        if (!devicesByService[d.serviceSlug].includes(d.deviceId)) {
+          devicesByService[d.serviceSlug].push(d.deviceId);
+        }
+      });
+
       // Top-level assigned groups for this user (roots of their access)
       const assignedGroups = userScopeRecords.map(r => {
         const fullGroup = allAccessibleGroups.find(g => g.id === r.scopeGroup.id) || r.scopeGroup;
@@ -78,6 +97,9 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
         scopeGroups: assignedGroups,
         allScopeGroups: allAccessibleGroups,
         accessibleGateIds: Array.from(gateIdSet),
+        accessibleServices: Array.from(accessibleServicesSet),
+        accessibleDevices,
+        devicesByService,
         allAccess: false,
         hasAssignedScopes: true
       });
@@ -94,11 +116,12 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
               name: true,
               color: true,
               parentId: true,
-              _count: { select: { gates: true, children: true } }
+              _count: { select: { gates: true, devices: true, children: true } }
             }
           },
           gates: { select: { gateId: true } },
-          _count: { select: { gates: true, children: true } }
+          devices: { select: { id: true, serviceSlug: true, deviceId: true } },
+          _count: { select: { gates: true, devices: true, children: true } }
         }
       });
 
@@ -110,6 +133,9 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
         scopeGroups: allGroups.filter(g => !g.parentId), // root groups
         allScopeGroups: allGroups,
         accessibleGateIds: allGateIds,
+        accessibleServices: ['brake-binding', 'hot-axle', 'bad-odour', 'emergency-brake', 'bpc-pressure'],
+        accessibleDevices: null, // null means unrestricted
+        devicesByService: {},
         allAccess: true,
         hasAssignedScopes: false
       });
@@ -121,6 +147,9 @@ router.get('/my-scope', async (req: AuthRequest, res, next) => {
       scopeGroups: [],
       allScopeGroups: [],
       accessibleGateIds: [],
+      accessibleServices: [],
+      accessibleDevices: [],
+      devicesByService: {},
       allAccess: false,
       hasAssignedScopes: false
     });
@@ -198,7 +227,10 @@ router.get('/', async (req: AuthRequest, res, next) => {
           }
         },
         _count: {
-          select: { gates: true, users: true, children: true }
+          select: { gates: true, devices: true, users: true, children: true }
+        },
+        devices: {
+          select: { id: true, serviceSlug: true, deviceId: true }
         },
         gates: {
           include: {
@@ -290,7 +322,10 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
           }
         },
         _count: {
-          select: { gates: true, users: true, children: true }
+          select: { gates: true, devices: true, users: true, children: true }
+        },
+        devices: {
+          select: { id: true, serviceSlug: true, deviceId: true }
         },
         gates: {
           include: {
@@ -343,6 +378,7 @@ const scopeGroupSchema = z.object({
   parentId: z.number().int().optional().nullable(),
   gateIds: z.array(z.number().int()).optional(),
   userIds: z.array(z.number().int()).optional(),
+  serviceDevices: z.array(z.object({ serviceSlug: z.string(), deviceId: z.string() })).optional(),
   subGroupNames: z.array(z.string().min(1).max(100)).optional(),
 });
 
@@ -364,6 +400,7 @@ router.post('/', requireScopeAdmin, async (req: AuthRequest, res, next) => {
 
     const gateIds = Array.from(new Set(data.gateIds || []));
     const userIds = Array.from(new Set(data.userIds || []));
+    const serviceDevices = data.serviceDevices || [];
     const subGroupNames = (data.subGroupNames || []).map(s => s.trim()).filter(Boolean);
 
     const group = await prisma.$transaction(async (tx) => {
@@ -375,6 +412,9 @@ router.post('/', requireScopeAdmin, async (req: AuthRequest, res, next) => {
           parentId: data.parentId ?? null,
           gates: {
             create: gateIds.map(gateId => ({ gateId }))
+          },
+          devices: {
+            create: serviceDevices.map(sd => ({ serviceSlug: sd.serviceSlug, deviceId: sd.deviceId }))
           },
           users: {
             create: userIds.map(userId => ({ userId }))
@@ -414,10 +454,11 @@ router.post('/', requireScopeAdmin, async (req: AuthRequest, res, next) => {
               parentId: true,
               description: true,
               gates: { include: { gate: true } },
-              _count: { select: { gates: true, children: true } }
+              _count: { select: { gates: true, devices: true, children: true } }
             }
           },
-          _count: { select: { gates: true, users: true, children: true } },
+          _count: { select: { gates: true, devices: true, users: true, children: true } },
+          devices: { select: { id: true, serviceSlug: true, deviceId: true } },
           gates: { include: { gate: true } },
           users: {
             include: {
@@ -541,6 +582,21 @@ router.put('/:id', requireScopeAdmin, async (req: AuthRequest, res, next) => {
         }
       }
 
+      // Sync service devices if provided
+      if (data.serviceDevices !== undefined) {
+        await tx.scopeGroupDevice.deleteMany({ where: { scopeGroupId: id } });
+        if (data.serviceDevices.length > 0) {
+          await tx.scopeGroupDevice.createMany({
+            data: data.serviceDevices.map(sd => ({
+              scopeGroupId: id,
+              serviceSlug: sd.serviceSlug,
+              deviceId: sd.deviceId
+            })),
+            skipDuplicates: true
+          });
+        }
+      }
+
       return tx.scopeGroup.findUnique({
         where: { id },
         include: {
@@ -553,10 +609,11 @@ router.put('/:id', requireScopeAdmin, async (req: AuthRequest, res, next) => {
               parentId: true,
               description: true,
               gates: { include: { gate: true } },
-              _count: { select: { gates: true, children: true } }
+              _count: { select: { gates: true, devices: true, children: true } }
             }
           },
-          _count: { select: { gates: true, users: true, children: true } },
+          _count: { select: { gates: true, devices: true, users: true, children: true } },
+          devices: { select: { id: true, serviceSlug: true, deviceId: true } },
           gates: { include: { gate: true } },
           users: {
             include: {
